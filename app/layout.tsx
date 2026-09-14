@@ -3,8 +3,9 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'GoFerias — Painel do Proprietário',
+  description:
+    'Gestão de aluguel de temporada em Ingleses, Florianópolis, com precificação inteligente por IA.',
   generator: 'v0.app',
   icons: {
     icon: [
