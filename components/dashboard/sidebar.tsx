@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import {
   LayoutDashboard,
   Building2,
@@ -12,14 +13,14 @@ import {
 import { cn } from "@/lib/utils"
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, active: true },
-  { label: "Meus Imóveis", icon: Building2, active: false },
-  { label: "Marketplace Público", icon: Store, active: false },
-  { label: "Configurações", icon: Settings, active: false },
+  { label: "Dashboard", icon: LayoutDashboard, href: "/" },
+  { label: "Meus Imóveis", icon: Building2, href: "#" },
+  { label: "Marketplace Público", icon: Store, href: "/marketplace" },
+  { label: "Configurações", icon: Settings, href: "#" },
 ]
 
 export function Sidebar() {
-  const [active, setActive] = useState("Dashboard")
+  const pathname = usePathname()
 
   return (
     <aside className="flex w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
@@ -36,12 +37,14 @@ export function Sidebar() {
       <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
         {navItems.map((item) => {
           const Icon = item.icon
-          const isActive = active === item.label
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : item.href !== "#" && pathname.startsWith(item.href)
           return (
-            <button
+            <Link
               key={item.label}
-              type="button"
-              onClick={() => setActive(item.label)}
+              href={item.href}
               aria-current={isActive ? "page" : undefined}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
@@ -52,7 +55,7 @@ export function Sidebar() {
             >
               <Icon className="size-4.5 shrink-0" />
               {item.label}
-            </button>
+            </Link>
           )
         })}
       </nav>
