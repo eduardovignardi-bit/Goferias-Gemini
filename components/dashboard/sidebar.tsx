@@ -16,7 +16,7 @@ const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/" },
   { label: "Meus Imóveis", icon: Building2, href: "#" },
   { label: "Marketplace Público", icon: Store, href: "/marketplace" },
-  { label: "Configurações", icon: Settings, href: "#" },
+  { label: "Configurações", icon: Settings, href: "/configuracoes" },
 ]
 
 export function Sidebar() {
@@ -69,12 +69,12 @@ export function Sidebar() {
           <p className="mb-3 text-xs leading-relaxed text-sidebar-primary-foreground/80">
             Desbloqueie precificação ilimitada por IA e análise de concorrentes.
           </p>
-          <button
-            type="button"
-            className="w-full rounded-lg bg-white/95 px-3 py-2 text-sm font-semibold text-sidebar-primary transition-colors hover:bg-white"
+          <Link
+            href="/planos"
+            className="block w-full rounded-lg bg-white/95 px-3 py-2 text-center text-sm font-semibold text-sidebar-primary transition-colors hover:bg-white"
           >
             Fazer Upgrade
-          </button>
+          </Link>
         </div>
       </div>
     </aside>
