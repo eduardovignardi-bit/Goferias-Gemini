@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 logs
 *.log
 npm-debug.log*
@@ -21,3 +22,20 @@ dist-ssr
 *.sln
 *.sw?
 .env
+=======
+# v0 sandbox internal files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.snowflake/
+.v0-trash/
+.vercel/
+
+# Environment variables
+.env*.local
+
+# Common ignores
+node_modules
+.next/
+.DS_Store
+>>>>>>> b874a9e38946b57bf3b41e4d289bbd7782eee889
