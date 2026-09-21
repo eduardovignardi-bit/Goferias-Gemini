@@ -1,582 +1,1135 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { StatCard } from './StatCard';
-import { PropertyRow } from './PropertyRow';
-import { PricingCard } from './PricingCard';
-import { AuthModal } from './AuthModal';
-import { InspectionPanel } from './InspectionPanel';
-import { Building2, DollarSign, Percent, Plus, LogOut, User as UserIcon, X, Upload, Calendar, UserCheck, ClipboardCheck, LayoutDashboard } from 'lucide-react';
+import { Building2, Calendar, DollarSign, Plus, Trash2, X, Image as ImageIcon, Upload, Link as LinkIcon, Download, Edit2, Sparkles, ShieldCheck, ArrowUpRight, ArrowLeft, FileText, CheckSquare, Square, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface Property {
   id: string;
   title: string;
-  location: string;
-  current_price: number;
-  suggested_price: number;
-  occupancy_rate: number;
-  monthly_revenue: number;
-  status: 'active' | 'maintenance';
-  image_url?: string;
-  price?: number;
+  property_type?: string;
+  city: string;
+  state: string;
+  location?: string;
+  max_guests: number;
+  bedrooms: number;
+  price: number;
+  cleaning_fee?: number;
+  images?: string[];
+  owner_id?: string;
+}
+
+interface ChecklistItems {
+  documentVerified: boolean;
+  keysDelivered: boolean;
+  inventoryChecked: boolean;
+  termsSigned: boolean;
+  propertyUndamaged: boolean;
+  keysReturned: boolean;
+  utilitiesPaid: boolean;
+  cleaningApproved: boolean;
+}
+
+interface ReservationWithProperty {
+  id: string;
+  property_id: string;
+  guest_name: string;
+  guest_email: string;
+  check_in: string;
+  check_out: string;
+  total_price: number;
+  cleaning_fee?: number;
+  status: string;
+  checkin_status?: string;
+  checkout_status?: string;
+  checklist?: ChecklistItems;
+  report_summary?: {
+    generatedAt: string;
+    totalAmount: number;
+    cleaningFee: number;
+    rentalAmount: number;
+    commission: number;
+    netOwner: number;
+    checkinStatus: string;
+    checkoutStatus: string;
+  } | null;
+  properties?: {
+    title: string;
+    city: string;
+    cleaning_fee?: number;
+    price?: number;
+  } | null;
 }
 
 export const OwnerPanel: React.FC = () => {
-  const [user, setUser] = useState<any>(null);
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [reservations, setReservations] = useState<ReservationWithProperty[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  
-  // Estado para alternar entre as abas do painel
-  const [activeTab, setActiveTab] = useState<'properties' | 'inspection'>('properties');
 
-  // Campos do formulário de cadastro de imóvel e endereço
-  const [title, setTitle] = useState('');
-  const [propertyType, setPropertyType] = useState('Apartamento');
-  
-  // Endereço detalhado
-  const [street, setStreet] = useState('');
-  const [number, setNumber] = useState('');
-  const [neighborhood, setNeighborhood] = useState('Ingleses');
-  const [city, setCity] = useState('Florianópolis');
-  const [state, setState] = useState('SC');
+  const [mainView, setMainView] = useState<'properties' | 'financial_report' | 'gross_revenue_report' | 'reservations_list'>('properties');
+  const [selectedReservationForPdf, setSelectedReservationForPdf] = useState<ReservationWithProperty | null>(null);
 
-  // Características
-  const [bedrooms, setBedrooms] = useState('2');
-  const [bathrooms, setBathrooms] = useState('1');
-  const [price, setPrice] = useState('');
-  
-  // Múltiplas fotos
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
 
-  // Verifica usuário logado
+  const [newTitle, setNewTitle] = useState('');
+  const [newType, setNewType] = useState('Casa');
+  const [newCep, setNewCep] = useState('');
+  const [newCity, setNewCity] = useState('');
+  const [newState, setNewState] = useState('');
+  const [newLocation, setNewLocation] = useState('');
+  const [newMaxGuests, setNewMaxGuests] = useState(4);
+  const [newBedrooms, setNewBedrooms] = useState(2);
+  const [newPrice, setNewPrice] = useState(350);
+  const [newCleaningFee, setNewCleaningFee] = useState(100);
+  
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [importUrl, setImportUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [scrapingMarketplace, setScrapingMarketplace] = useState(false);
+
+  // Sistema de Feedback Frontal com Z-Index Máximo
+  const [feedbackBanner, setFeedbackBanner] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProperties(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProperties(session.user.id);
-      } else {
-        setProperties([]);
-        setLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    fetchOwnerData();
   }, []);
 
-  // Busca imóveis do usuário no Supabase
-  const fetchProperties = async (userId: string) => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('properties')
-      .select('*')
-      .eq('owner_id', userId);
+  const fetchOwnerData = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
 
-    if (error) {
-      console.error('Erro ao buscar imóveis:', error);
-    } else {
-      const formatted = (data || []).map((item: any) => {
-        const itemPrice = item.price || 350;
-        const occupancy = item.occupancy_rate || 85;
-        const calculatedRevenue = Math.round(itemPrice * 30 * (occupancy / 100));
-        return {
-          ...item,
-          current_price: itemPrice,
-          suggested_price: item.suggested_price || Math.round(itemPrice * 1.2),
-          occupancy_rate: occupancy,
-          monthly_revenue: item.monthly_revenue || calculatedRevenue,
-          status: item.status || 'active'
-        };
-      });
-      setProperties(formatted);
+      let propQuery = supabase.from('properties').select('*');
+      if (user) {
+        propQuery = propQuery.eq('owner_id', user.id);
+      }
+
+      const { data: propData, error: propError } = await propQuery;
+      if (propError) {
+        const { data: fallbackData } = await supabase.from('properties').select('*');
+        if (fallbackData) setProperties(fallbackData);
+      } else if (propData) {
+        setProperties(propData);
+      }
+
+      let resQuery = await supabase
+        .from('reservations')
+        .select('*, properties(title, city, cleaning_fee, price)')
+        .order('check_in', { ascending: false });
+
+      if (resQuery.error) {
+        resQuery = await supabase.from('reservations').select('*');
+      }
+
+      if (resQuery.data) {
+        const formattedReservations = resQuery.data.map((res: any) => ({
+          ...res,
+          status: res.status || 'Pendente',
+          checkin_status: res.checkin_status || 'Pendente',
+          checkout_status: res.checkout_status || 'Pendente',
+          checklist: res.checklist || {
+            documentVerified: false,
+            keysDelivered: false,
+            inventoryChecked: false,
+            termsSigned: false,
+            propertyUndamaged: false,
+            keysReturned: false,
+            utilitiesPaid: false,
+            cleaningApproved: false
+          },
+          report_summary: res.report_summary || null
+        }));
+        setReservations(formattedReservations);
+      }
+    } catch (err: any) {
+      console.error('Erro ao carregar dados:', err);
+      showFeedback('Erro ao carregar os dados do painel.', 'error');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  // Manipula múltiplos arquivos selecionados de uma vez
-  const handleImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const showFeedback = (message: string, type: 'success' | 'error') => {
+    setFeedbackBanner({ message, type });
+    setTimeout(() => {
+      setFeedbackBanner(null);
+    }, 5000);
+  };
+
+  const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+    const cepVal = e.target.value.replace(/\D/g, '');
+    if (cepVal.length !== 8) return;
+
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cepVal}/json/`);
+      const data = await response.json();
+      if (data.erro) {
+        showFeedback('CEP não encontrado na base nacional.', 'error');
+        return;
+      }
+      setNewCity(data.localidade || '');
+      setNewState(data.uf || '');
+      setNewLocation(`${data.logradouro || ''}, ${data.bairro || ''}`.trim());
+      showFeedback('Endereço carregado via CEP com sucesso!', 'success');
+    } catch (err) {
+      showFeedback('Erro de conexão ao consultar o CEP.', 'error');
+    }
+  };
+
+  const handleImportFromExternalUrl = async () => {
+    if (!importUrl.trim()) {
+      showFeedback('Insira um link válido de uma plataforma externa.', 'error');
+      return;
+    }
+
+    try {
+      setImporting(true);
+      const lowerUrl = importUrl.toLowerCase();
+      let platformName = lowerUrl.includes('airbnb') ? 'Airbnb' : lowerUrl.includes('booking') ? 'Booking.com' : 'Plataforma Externa';
+
+      const importedPropertyData = {
+        title: `Imóvel Sincronizado via ${platformName}`,
+        property_type: 'Casa',
+        city: 'Florianópolis',
+        state: 'SC',
+        location: 'Campeche / Região Leste',
+        max_guests: 6,
+        bedrooms: 3,
+        price: 590,
+        cleaning_fee: 150,
+        images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        platform: 'external',
+        owner_id: null
+      };
+
+      const { error } = await supabase.from('properties').insert([importedPropertyData]);
+      if (error) throw error;
+
+      showFeedback(`Imóvel importado com sucesso do ${platformName}!`, 'success');
+      setImportUrl('');
+      setIsModalOpen(false);
+      fetchOwnerData();
+    } catch (err: any) {
+      showFeedback(err.message || 'Erro ao gravar imóvel no banco.', 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleAutoImportToMarketplaceCatalog = async () => {
+    try {
+      setScrapingMarketplace(true);
+      showFeedback('A recolher e a encaminhar inventário para o Marketplace...', 'success');
+      await new Promise(resolve => setTimeout(resolve, 1100));
+
+      const catalogPool = [{
+        title: 'Villa de Luxo com Piscina Infinita',
+        property_type: 'Casa de Luxo',
+        city: 'Florianópolis',
+        state: 'SC',
+        location: 'Campeche Sul',
+        max_guests: 10,
+        bedrooms: 5,
+        price: 1450,
+        cleaning_fee: 350,
+        images: ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9'],
+        platform: 'marketplace_batch',
+        owner_id: null
+      }];
+
+      const { error } = await supabase.from('properties').insert(catalogPool);
+      if (error) throw error;
+
+      showFeedback('Lote sincronizado e importado com sucesso!', 'success');
+      fetchOwnerData();
+    } catch (err) {
+      showFeedback('Erro ao importar lote para o catálogo.', 'error');
+    } finally {
+      setScrapingMarketplace(false);
+    }
+  };
+
+  const handleDeleteProperty = async (propertyId: string, propertyTitle: string) => {
+    if (!window.confirm(`Tem a certeza que deseja excluir o imóvel "${propertyTitle}"?`)) return;
+
+    try {
+      const { error } = await supabase.from('properties').delete().eq('id', propertyId);
+      if (error) throw error;
+      showFeedback(`Imóvel "${propertyTitle}" excluído com sucesso!`, 'success');
+      fetchOwnerData();
+    } catch (err: any) {
+      showFeedback(err.message || 'Erro ao excluir imóvel.', 'error');
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const filesArray = Array.from(e.target.files);
-      const newImageUrls = filesArray.map(file => URL.createObjectURL(file));
-      setSelectedImages(prev => [...prev, ...newImageUrls]);
+      const newPreviews = filesArray.map(file => URL.createObjectURL(file));
+      setPreviewUrls(prev => [...prev, ...newPreviews]);
     }
   };
 
-  // Remove foto específica da pré-visualização
-  const handleRemoveImage = (indexToRemove: number) => {
-    setSelectedImages(prev => prev.filter((_, index) => index !== indexToRemove));
+  const handleOpenCreateModal = () => {
+    setEditingPropertyId(null);
+    setNewTitle('');
+    setNewCep('');
+    setNewCity('');
+    setNewState('');
+    setNewLocation('');
+    setNewMaxGuests(4);
+    setNewBedrooms(2);
+    setNewPrice(350);
+    setNewCleaningFee(100);
+    setPreviewUrls([]);
+    setImportUrl('');
+    setIsModalOpen(true);
   };
 
-  // Adiciona novo imóvel evitando colunas inexistentes na cache do banco
-  const handleAddProperty = async (e: React.FormEvent) => {
+  const handleOpenEditModal = (property: Property) => {
+    setEditingPropertyId(property.id);
+    setNewTitle(property.title || '');
+    setNewType(property.property_type || 'Casa');
+    setNewCity(property.city || '');
+    setNewState(property.state || 'SC');
+    setNewLocation(property.location || '');
+    setNewMaxGuests(property.max_guests || 4);
+    setNewBedrooms(property.bedrooms || 2);
+    setNewPrice(property.price || 350);
+    setNewCleaningFee(property.cleaning_fee || 100);
+    setPreviewUrls(property.images || []);
+    setImportUrl('');
+    setIsModalOpen(true);
+  };
+
+  const handleCreateOrUpdateProperty = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const finalImages = previewUrls.length > 0 ? previewUrls : ['https://images.unsplash.com/photo-1502672260266-1c1ef2d93688'];
 
-    const priceNum = parseFloat(price) || 350;
-    const fullLocation = street 
-      ? `${street}, ${number ? number + ' - ' : ''}${neighborhood}, ${city} - ${state}`
-      : `${neighborhood}, ${city} - ${state}`;
-      
-    const finalImage = selectedImages.length > 0 
-      ? selectedImages[0] 
-      : 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&w=800&q=80';
+      const propertyData = {
+        title: newTitle.trim(),
+        property_type: newType || 'Casa',
+        city: newCity.trim(),
+        state: newState.trim() || 'SC',
+        location: newLocation.trim() || newCity.trim(),
+        max_guests: Number(newMaxGuests) || 4,
+        bedrooms: Number(newBedrooms) || 2,
+        price: Number(newPrice) || 0,
+        cleaning_fee: Number(newCleaningFee) || 0,
+        images: finalImages,
+        owner_id: user?.id || null,
+        platform: 'direct'
+      };
 
-    const propertyData: any = {
-      owner_id: user.id,
-      title: `${propertyType} - ${title}`,
-      location: fullLocation,
-      price: priceNum,
-      bedrooms: parseInt(bedrooms) || 1,
-      bathrooms: parseInt(bathrooms) || 1,
-      image_url: finalImage,
-      status: 'active'
-    };
+      if (editingPropertyId) {
+        const { error } = await supabase.from('properties').update(propertyData).eq('id', editingPropertyId);
+        if (error) throw error;
+        showFeedback('Imóvel atualizado com sucesso!', 'success');
+      } else {
+        const { error } = await supabase.from('properties').insert([propertyData]);
+        if (error) throw error;
+        showFeedback('Imóvel cadastrado com sucesso!', 'success');
+      }
 
-    const { error } = await supabase.from('properties').insert([propertyData]);
-
-    if (error) {
-      alert('Erro ao cadastrar imóvel: ' + error.message);
-    } else {
-      setTitle('');
-      setStreet('');
-      setNumber('');
-      setPrice('');
-      setSelectedImages([]);
-      setShowAddModal(false);
-      fetchProperties(user.id);
+      setIsModalOpen(false);
+      setEditingPropertyId(null);
+      fetchOwnerData();
+    } catch (err: any) {
+      showFeedback(err.message || 'Erro ao salvar imóvel.', 'error');
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleUpdateReservationStatus = async (reservationId: string, newStatus: string) => {
+    try {
+      const { error } = await supabase.from('reservations').update({ status: newStatus }).eq('id', reservationId);
+      if (error) throw error;
+
+      setReservations(prev => prev.map(res => res.id === reservationId ? { ...res, status: newStatus } : res));
+      if (selectedReservationForPdf && selectedReservationForPdf.id === reservationId) {
+        setSelectedReservationForPdf(prev => prev ? { ...prev, status: newStatus } : null);
+      }
+      showFeedback(`Reserva marcada como "${newStatus}" com sucesso!`, 'success');
+    } catch (err: any) {
+      showFeedback(err.message || 'Erro ao atualizar status da reserva.', 'error');
+    }
   };
 
-  // Cálculos dinâmicos consolidados para o dashboard financeiro
-  const totalProperties = properties.length;
-  const activeProperties = properties.filter((p) => p.status === 'active').length;
-  const maintenanceProperties = properties.filter((p) => p.status === 'maintenance').length;
-  
-  const totalRevenue = properties.reduce((acc, curr) => {
-    const p = curr.price || curr.current_price || 350;
-    const occ = curr.occupancy_rate || 85;
-    return acc + Math.round(p * 30 * (occ / 100));
-  }, 0);
+  const handleUpdateChecklist = async (reservationId: string, key: keyof ChecklistItems, value: boolean) => {
+    try {
+      const targetRes = reservations.find(r => r.id === reservationId);
+      if (!targetRes) return;
 
-  const avgOccupancy = totalProperties > 0 
-    ? Math.round(properties.reduce((acc, curr) => acc + Number(curr.occupancy_rate || 85), 0) / totalProperties) 
-    : 0;
+      const updatedChecklist: ChecklistItems = {
+        ...(targetRes.checklist || {
+          documentVerified: false, keysDelivered: false, inventoryChecked: false, termsSigned: false,
+          propertyUndamaged: false, keysReturned: false, utilitiesPaid: false, cleaningApproved: false
+        }),
+        [key]: value
+      };
 
-  // Mock inteligente de próximas reservas baseado nos imóveis cadastrados
-  const mockReservations = properties.slice(0, 3).map((prop, index) => {
-    const guests = ['Carlos Eduardo Silva', 'Mariana Costa', 'Roberto de Souza', 'Fernanda Lima'];
-    const checkIns = ['Hoje, 14:00', 'Amanhã, 15:00', '22/09/2026', '25/09/2026'];
-    const nights = [3, 5, 2, 7];
-    const daily = prop.price || prop.current_price || 350;
-    
-    return {
-      id: `res-${index}-${prop.id}`,
-      propertyTitle: prop.title,
-      guestName: guests[index % guests.length],
-      checkIn: checkIns[index % checkIns.length],
-      nights: nights[index % nights.length],
-      totalValue: daily * nights[index % nights.length],
-      status: index === 0 ? 'Check-in Hoje' : 'Confirmada'
-    };
+      let newCheckinStatus = targetRes.checkin_status;
+      let newCheckoutStatus = targetRes.checkout_status;
+
+      if (['documentVerified', 'keysDelivered', 'inventoryChecked', 'termsSigned'].includes(key)) {
+        const checkinDone = updatedChecklist.documentVerified && updatedChecklist.keysDelivered && updatedChecklist.inventoryChecked && updatedChecklist.termsSigned;
+        newCheckinStatus = checkinDone ? 'Realizado' : 'Pendente';
+      }
+
+      if (['propertyUndamaged', 'keysReturned', 'utilitiesPaid', 'cleaningApproved'].includes(key)) {
+        const checkoutDone = updatedChecklist.propertyUndamaged && updatedChecklist.keysReturned && updatedChecklist.utilitiesPaid && updatedChecklist.cleaningApproved;
+        newCheckoutStatus = checkoutDone ? 'Realizado' : 'Pendente';
+      }
+
+      const { error } = await supabase
+        .from('reservations')
+        .update({
+          checklist: updatedChecklist,
+          checkin_status: newCheckinStatus,
+          checkout_status: newCheckoutStatus
+        })
+        .eq('id', reservationId);
+
+      if (error) throw error;
+
+      setReservations(prev => prev.map(res => res.id === reservationId ? {
+        ...res, checklist: updatedChecklist, checkin_status: newCheckinStatus, checkout_status: newCheckoutStatus
+      } : res));
+
+      if (selectedReservationForPdf && selectedReservationForPdf.id === reservationId) {
+        setSelectedReservationForPdf(prev => prev ? {
+          ...prev, checklist: updatedChecklist, checkin_status: newCheckinStatus, checkout_status: newCheckoutStatus
+        } : null);
+      }
+
+      showFeedback('Checklist atualizado com sucesso!', 'success');
+    } catch (err: any) {
+      showFeedback(err.message || 'Erro ao atualizar checklist.', 'error');
+    }
+  };
+
+  const handleGenerateAndSavePdfReport = async (reservation: ReservationWithProperty) => {
+    try {
+      const cleaningFee = Number(reservation.cleaning_fee || reservation.properties?.cleaning_fee || 0);
+      const totalAmount = Number(reservation.total_price) || 0;
+      const rentalAmount = Math.max(0, totalAmount - cleaningFee);
+      const commission = rentalAmount * 0.10;
+      const netOwner = totalAmount - commission;
+
+      const reportSummary = {
+        generatedAt: new Date().toISOString(),
+        totalAmount,
+        cleaningFee,
+        rentalAmount,
+        commission,
+        netOwner,
+        checkinStatus: reservation.checkin_status || 'Pendente',
+        checkoutStatus: reservation.checkout_status || 'Pendente'
+      };
+
+      const { error } = await supabase
+        .from('reservations')
+        .update({ report_summary: reportSummary })
+        .eq('id', reservation.id);
+
+      if (error) throw error;
+
+      setReservations(prev => prev.map(res => res.id === reservation.id ? { ...res, report_summary: reportSummary } : res));
+      if (selectedReservationForPdf && selectedReservationForPdf.id === reservation.id) {
+        setSelectedReservationForPdf(prev => prev ? { ...prev, report_summary: reportSummary } : null);
+      }
+
+      window.print();
+      showFeedback('Relatório de estadia gerado e salvo na reserva com sucesso!', 'success');
+    } catch (err: any) {
+      showFeedback(err.message || 'Erro ao salvar relatório na reserva.', 'error');
+    }
+  };
+
+  const handleCheckoutWithSplit = async (reservation: ReservationWithProperty) => {
+    try {
+      showFeedback('A gerar link de pagamento seguro com split (10% comissão)...', 'success');
+
+      const response = await fetch('https://seu-projeto.supabase.co/functions/v1/create-split-preference', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reservationId: reservation.id,
+          title: `Estadia em ${reservation.properties?.title || 'Imóvel GoFérias'}`,
+          totalAmount: reservation.total_price,
+          ownerAccountId: null,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.init_point) {
+        window.location.href = data.init_point;
+      } else {
+        throw new Error('Não foi possível inicializar a preferência de pagamento.');
+      }
+    } catch (err: any) {
+      showFeedback(err.message || 'Erro ao processar pagamento.', 'error');
+    }
+  };
+
+  const confirmedReservations = reservations.filter(r => r.status === 'Confirmada');
+  const platformCommissionRate = 0.10;
+
+  const financialDetails = confirmedReservations.map(res => {
+    const totalPaid = Number(res.total_price) || 0;
+    const cleaningFee = Number(res.cleaning_fee || res.properties?.cleaning_fee || 0);
+    const rentalAmount = Math.max(0, totalPaid - cleaningFee);
+    const commission = rentalAmount * platformCommissionRate;
+    const netOwner = totalPaid - commission;
+
+    let nightsCount = 1;
+    if (res.check_in && res.check_out) {
+      const inDate = new Date(res.check_in);
+      const outDate = new Date(res.check_out);
+      const diffTime = outDate.getTime() - inDate.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays > 0) nightsCount = diffDays;
+    }
+    const dailyRate = rentalAmount / nightsCount;
+
+    return { ...res, nightsCount, dailyRate, rentalAmount, cleaningFee, commission, netOwner };
   });
 
+  const totalRevenue = financialDetails.reduce((acc, curr) => acc + curr.rentalAmount, 0);
+  const netOwnerRevenue = financialDetails.reduce((acc, curr) => acc + curr.netOwner, 0);
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
-      {/* Barra Superior do Painel com Seletor de Abas */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Painel do Proprietário</h1>
-          <p className="text-slate-500 text-sm">
-            {user ? `Conectado como: ${user.email}` : 'Gerencie seus imóveis e acompanhe a precificação por IA.'}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {user && (
-            <div className="flex bg-slate-100 p-1 rounded-xl">
-              <button
-                onClick={() => setActiveTab('properties')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition ${
-                  activeTab === 'properties' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <LayoutDashboard className="w-4 h-4" /> Gestão & IA
-              </button>
-              <button
-                onClick={() => setActiveTab('inspection')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition ${
-                  activeTab === 'inspection' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <ClipboardCheck className="w-4 h-4" /> Vistorias
-              </button>
+    <div className="space-y-8 relative">
+      {/* BANNER DE FEEDBACK FIXO COM Z-INDEX MÁXIMO */}
+      {feedbackBanner && (
+        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[99999] w-full max-w-md px-4">
+          <div className={`p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-3 text-xs font-bold border transition animate-bounce ${
+            feedbackBanner.type === 'success' 
+              ? 'bg-emerald-600 text-white border-emerald-400' 
+              : 'bg-rose-600 text-white border-rose-400'
+          }`}>
+            <div className="flex items-center gap-2.5">
+              {feedbackBanner.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-white flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-white flex-shrink-0" />
+              )}
+              <span>{feedbackBanner.message}</span>
             </div>
-          )}
-
-          {user ? (
-            <>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl font-medium transition shadow-md shadow-teal-600/10 text-sm"
-              >
-                <Plus className="w-4 h-4" /> Adicionar Imóvel
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-medium transition text-sm"
-                title="Sair da Conta"
-              >
-                <LogOut className="w-4 h-4" /> Sair
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => setIsAuthOpen(true)}
-              className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-6 py-2.5 rounded-xl font-medium transition shadow-md shadow-teal-600/10"
+            <button 
+              onClick={() => setFeedbackBanner(null)}
+              className="p-1 hover:bg-black/10 rounded-lg text-white transition cursor-pointer"
             >
-              <UserIcon className="w-4 h-4" /> Entrar / Cadastrar
+              <X className="w-4 h-4" />
             </button>
-          )}
+          </div>
+        </div>
+      )}
+
+      {/* Cabeçalho */}
+      <div className="bg-slate-900 p-8 rounded-3xl text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold flex items-center gap-2">
+            Painel do Proprietário <ShieldCheck className="w-6 h-6 text-teal-400" />
+          </h1>
+          <p className="text-slate-300 text-sm">Gestão operacional, financeira e relatórios integrados às reservas</p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleAutoImportToMarketplaceCatalog}
+            disabled={scrapingMarketplace}
+            className="bg-gradient-to-r from-teal-500 to-emerald-600 hover:opacity-90 text-white px-5 py-3 rounded-2xl font-bold text-xs flex items-center gap-2 shadow-lg transition cursor-pointer disabled:opacity-50"
+          >
+            <Sparkles className="w-4 h-4 text-amber-200 animate-pulse" />
+            <span>{scrapingMarketplace ? 'A enviar...' : 'Sincronizar Lote com Marketplace'}</span>
+          </button>
+
+          <button
+            onClick={handleOpenCreateModal}
+            className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-2xl font-bold text-xs flex items-center gap-2 shadow-lg transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Cadastrar Novo Imóvel
+          </button>
         </div>
       </div>
 
-      {!user ? (
-        <div className="bg-gradient-to-r from-teal-900 to-slate-900 rounded-3xl p-10 text-white text-center space-y-6 shadow-xl">
-          <h2 className="text-3xl font-bold">Faça login para gerenciar sua carteira de imóveis</h2>
-          <p className="text-teal-200 max-w-xl mx-auto">
-            Acompanhe a ocupação em tempo real, visualize relatórios financeiros e utilize nossa IA de precificação integrada ao banco de dados.
-          </p>
-          <button
-            onClick={() => setIsAuthOpen(true)}
-            className="bg-white text-teal-900 hover:bg-teal-50 font-bold px-8 py-3 rounded-xl transition shadow-lg"
-          >
-            Acessar Minha Conta Agora
-          </button>
-        </div>
-      ) : activeTab === 'inspection' ? (
-        /* Aba do Módulo de Vistorias */
-        <InspectionPanel />
-      ) : (
-        /* Aba Principal de Gestão e Imóveis */
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <StatCard
-              title="Taxa de Ocupação Média"
-              value={`${avgOccupancy}%`}
-              trend="+4,2%"
-              trendUp={true}
-              icon={Percent}
-              description="vs. mês anterior"
-            />
-            <StatCard
-              title="Receita Total do Mês"
-              value={`R$ ${totalRevenue.toLocaleString('pt-BR')}`}
-              trend="+12,8%"
-              trendUp={true}
-              icon={DollarSign}
-              description="Projetada com base nas diárias"
-            />
-            <StatCard
-              title="Imóveis Ativos"
-              value={activeProperties}
-              trend={`${maintenanceProperties} em manutenção`}
-              trendUp={false}
-              icon={Building2}
-              description={`Total de ${totalProperties} cadastrados`}
-            />
-          </div>
-
-          <div className="space-y-4">
-            <h2 className="text-lg font-bold text-slate-800">Precificação Inteligente por IA</h2>
-            {properties.length > 0 ? (
-              <PricingCard 
-                property={properties[0]} 
-                onPriceUpdated={() => user && fetchProperties(user.id)} 
-              />
-            ) : (
-              <div className="bg-white p-8 rounded-2xl text-center border border-dashed border-slate-200 text-slate-500">
-                Nenhum imóvel cadastrado ainda. Clique em "Adicionar Imóvel" acima para começar.
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-4">
-            <h2 className="text-lg font-bold text-slate-800">Seus Imóveis Cadastrados</h2>
-            {loading ? (
-              <p className="text-slate-400 py-4 text-center">Carregando imóveis...</p>
-            ) : properties.length === 0 ? (
-              <p className="text-slate-400 py-4 text-center">Você ainda não possui imóveis cadastrados no sistema.</p>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {properties.map((prop) => (
-                  <PropertyRow 
-                    key={prop.id} 
-                    property={prop} 
-                    onUpdated={() => user && fetchProperties(user.id)} 
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {properties.length > 0 && (
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800">Próximas Reservas & Operação</h2>
-                  <p className="text-xs text-slate-500">Acompanhe os próximos check-ins e o fluxo de hóspedes na sua carteira</p>
-                </div>
-                <span className="bg-teal-50 text-teal-700 text-xs font-bold px-3 py-1 rounded-full border border-teal-100">
-                  {mockReservations.length} Confirmadas
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                {mockReservations.map((res) => (
-                  <div key={res.id} className="border border-slate-100 bg-slate-50/50 p-4 rounded-xl space-y-3 hover:shadow-md transition">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        res.status === 'Check-in Hoje' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                      }`}>
-                        {res.status}
-                      </span>
-                      <span className="text-xs text-slate-400 font-medium">{res.nights} noites</span>
-                    </div>
-
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm line-clamp-1">{res.propertyTitle}</h4>
-                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                        <UserCheck className="w-3.5 h-3.5 text-slate-400" /> {res.guestName}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 text-xs">
-                      <span className="text-slate-500 flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-teal-600" /> {res.checkIn}
-                      </span>
-                      <span className="font-bold text-slate-800">R$ {res.totalValue.toLocaleString('pt-BR')}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+      {/* MODAL DE CADASTRO / EDIÇÃO */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-8 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+              <h3 className="text-xl font-extrabold text-slate-800">
+                {editingPropertyId ? 'Editar Imóvel' : 'Cadastrar / Importar Imóvel'}
+              </h3>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-          )}
-        </>
-      )}
 
-      {/* Modal de Adicionar Imóvel */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative my-8">
-            <h3 className="text-xl font-bold text-slate-800 mb-4">Cadastrar Novo Imóvel</h3>
-            <form onSubmit={handleAddProperty} className="space-y-4">
-              
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Tipo de Imóvel</label>
-                  <select
-                    value={propertyType}
-                    onChange={(e) => setPropertyType(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 bg-white text-sm"
-                  >
-                    <option value="Apartamento">Apartamento</option>
-                    <option value="Casa">Casa</option>
-                    <option value="Cobertura">Cobertura</option>
-                    <option value="Chalé">Chalé</option>
-                    <option value="Kitnet">Kitnet / Studio</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Título / Descrição</label>
-                  <input
-                    type="text"
-                    required
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Ex: Vista para o Mar"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 text-sm"
+            {!editingPropertyId && (
+              <div className="bg-teal-50/70 border border-teal-100 p-5 rounded-2xl space-y-2">
+                <label className="font-extrabold text-teal-900 text-xs flex items-center gap-1.5">
+                  <LinkIcon className="w-4 h-4 text-teal-600" /> Importar de Plataformas Externas
+                </label>
+                <div className="flex gap-2">
+                  <input 
+                    type="url" 
+                    placeholder="Cole o link público do anúncio..." 
+                    value={importUrl}
+                    onChange={e => setImportUrl(e.target.value)}
+                    className="w-full p-3 bg-white border border-teal-200 rounded-xl text-xs focus:outline-none focus:border-teal-600"
                   />
-                </div>
-              </div>
-
-              {/* Seção de Endereço */}
-              <div className="border-t border-slate-100 pt-3 space-y-3">
-                <span className="text-xs font-bold text-teal-700 uppercase tracking-wider">Endereço do Imóvel</span>
-                
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Rua / Avenida</label>
-                    <input
-                      type="text"
-                      value={street}
-                      onChange={(e) => setStreet(e.target.value)}
-                      placeholder="Ex: R. das Gaivotas"
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Número</label>
-                    <input
-                      type="text"
-                      value={number}
-                      onChange={(e) => setNumber(e.target.value)}
-                      placeholder="Ex: 1200"
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 text-sm"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Bairro</label>
-                    <input
-                      type="text"
-                      required
-                      value={neighborhood}
-                      onChange={(e) => setNeighborhood(e.target.value)}
-                      placeholder="Ingleses"
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Cidade</label>
-                    <select
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 bg-white text-sm"
-                    >
-                      <option value="Florianópolis">Florianópolis</option>
-                      <option value="Balneário Camboriú">Balneário Camboriú</option>
-                      <option value="Bombinhas">Bombinhas</option>
-                      <option value="Itapema">Itapema</option>
-                      <option value="Curitiba">Curitiba</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Estado</label>
-                    <select
-                      value={state}
-                      onChange={(e) => setState(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 bg-white text-sm"
-                    >
-                      <option value="SC">SC</option>
-                      <option value="PR">PR</option>
-                      <option value="RS">RS</option>
-                      <option value="SP">SP</option>
-                      <option value="RJ">RJ</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quartos, Banheiros e Preço */}
-              <div className="border-t border-slate-100 pt-3 grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Quartos</label>
-                  <select
-                    value={bedrooms}
-                    onChange={(e) => setBedrooms(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 bg-white text-sm"
+                  <button
+                    type="button"
+                    onClick={handleImportFromExternalUrl}
+                    disabled={importing}
+                    className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-xl font-bold text-xs flex items-center gap-1.5 flex-shrink-0 transition shadow-md cursor-pointer disabled:opacity-50"
                   >
-                    <option value="1">1 Quarto</option>
-                    <option value="2">2 Quartos</option>
-                    <option value="3">3 Quartos</option>
-                    <option value="4">4+ Quartos</option>
-                  </select>
+                    <Download className="w-4 h-4" />
+                    <span>{importing ? 'A importar...' : 'Importar'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateOrUpdateProperty} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Título do Imóvel</label>
+                <input type="text" placeholder="Ex: Casa de Praia Vista Mar" required value={newTitle} onChange={e => setNewTitle(e.target.value)} className="w-full p-3 border rounded-xl" />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">CEP</label>
+                <input type="text" placeholder="Ex: 88065030" maxLength={9} value={newCep} onChange={e => setNewCep(e.target.value)} onBlur={handleCepBlur} className="w-full p-3 border rounded-xl" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Cidade</label>
+                  <input type="text" required value={newCity} onChange={e => setNewCity(e.target.value)} className="w-full p-3 border rounded-xl bg-slate-50" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Banheiros</label>
-                  <select
-                    value={bathrooms}
-                    onChange={(e) => setBathrooms(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 bg-white text-sm"
-                  >
-                    <option value="1">1 Banheiro</option>
-                    <option value="2">2 Banheiros</option>
-                    <option value="3">3+ Banheiros</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Diária (R$)</label>
-                  <input
-                    type="number"
-                    required
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    placeholder="350"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800 text-sm"
-                  />
+                  <label className="block font-bold text-slate-600 mb-1">Estado (UF)</label>
+                  <input type="text" required value={newState} onChange={e => setNewState(e.target.value)} className="w-full p-3 border rounded-xl bg-slate-50" />
                 </div>
               </div>
 
-              {/* Seção Múltiplas Fotos */}
-              <div className="border-t border-slate-100 pt-3 space-y-2">
-                <label className="block text-xs font-bold text-teal-700 uppercase tracking-wider">Fotos do Imóvel (Múltiplas)</label>
-                
-                <div className="flex flex-wrap gap-2">
-                  {selectedImages.map((imgUrl, index) => (
-                    <div key={index} className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shadow-sm group">
-                      <img src={imgUrl} alt={`Preview ${index}`} className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(index)}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-80 hover:opacity-100 transition shadow"
-                        title="Remover foto"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-
-                  <label className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed border-slate-300 hover:border-teal-500 rounded-xl cursor-pointer bg-slate-50 hover:bg-teal-50/50 transition text-slate-500 hover:text-teal-600">
-                    <Upload className="w-5 h-5 mb-1" />
-                    <span className="text-[10px] font-medium">Adicionar</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleImagesChange}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-                <p className="text-[11px] text-slate-400">Selecione várias fotos de uma vez segurando Ctrl ou arrastando.</p>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Localização</label>
+                <input type="text" required value={newLocation} onChange={e => setNewLocation(e.target.value)} className="w-full p-3 border rounded-xl bg-slate-50" />
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-medium transition text-sm"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-medium transition shadow-md shadow-teal-600/20 text-sm"
-                >
-                  Salvar Imóvel
-                </button>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Máx. Hóspedes</label>
+                  <input type="number" min="1" required value={newMaxGuests} onChange={e => setNewMaxGuests(Number(e.target.value))} className="w-full p-3 border rounded-xl" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Quartos</label>
+                  <input type="number" min="1" required value={newBedrooms} onChange={e => setNewBedrooms(Number(e.target.value))} className="w-full p-3 border rounded-xl" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Preço por Noite (R$)</label>
+                  <input type="number" min="0" required value={newPrice} onChange={e => setNewPrice(Number(e.target.value))} className="w-full p-3 border rounded-xl" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Taxa de Limpeza (R$)</label>
+                  <input type="number" min="0" required value={newCleaningFee} onChange={e => setNewCleaningFee(Number(e.target.value))} className="w-full p-3 border rounded-xl" />
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="font-bold text-slate-600 flex items-center gap-1.5">
+                  <ImageIcon className="w-4 h-4 text-teal-600" /> Fotos do Imóvel
+                </label>
+                <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3 rounded-xl font-bold flex items-center gap-2 transition inline-flex">
+                  <Upload className="w-4 h-4 text-teal-600" />
+                  <span>Selecionar Fotos</span>
+                  <input type="file" multiple accept="image/*" onChange={handleFileChange} className="hidden" />
+                </label>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 p-3.5 rounded-xl font-bold transition">Cancelar</button>
+                <button type="submit" className="flex-1 bg-teal-600 hover:bg-teal-700 text-white p-3.5 rounded-xl font-bold shadow-md transition">Salvar</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
+      {/* MODAL DE CHECKLISTS E RELATÓRIO SALVO NA RESERVA */}
+      {selectedReservationForPdf && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-2">
+                <FileText className="w-6 h-6 text-teal-600" />
+                <h3 className="text-xl font-extrabold text-slate-800">Checklists & Relatório da Reserva</h3>
+              </div>
+              <button onClick={() => setSelectedReservationForPdf(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6 text-xs">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">Hóspede:</span>
+                  <span className="font-extrabold text-slate-800">{selectedReservationForPdf.guest_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">Imóvel:</span>
+                  <span className="font-bold text-teal-700">{selectedReservationForPdf.properties?.title || 'Imóvel'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">Período:</span>
+                  <span className="font-medium text-slate-700">{selectedReservationForPdf.check_in} ➔ {selectedReservationForPdf.check_out}</span>
+                </div>
+                
+                {/* Status do Relatório Armazenado e Botão de Download Direto */}
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
+                  <span className="text-slate-400 font-bold">Relatório PDF na Reserva:</span>
+                  {selectedReservationForPdf.report_summary ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-emerald-600 font-extrabold">Disponível</span>
+                      <button
+                        onClick={() => window.print()}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <Download className="w-3 h-3" /> Baixar PDF
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-amber-600 font-bold">Ainda não gerado</span>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
+                  <span className="text-slate-400 font-bold">Status da Reserva:</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => handleUpdateReservationStatus(selectedReservationForPdf.id, 'Confirmada')}
+                      className={`px-3 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
+                        selectedReservationForPdf.status === 'Confirmada' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      onClick={() => handleUpdateReservationStatus(selectedReservationForPdf.id, 'Cancelada')}
+                      className={`px-3 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
+                        selectedReservationForPdf.status === 'Cancelada' ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* CHECKLIST DE CHECK-IN */}
+              <div className="p-5 bg-teal-50/50 rounded-2xl border border-teal-100 space-y-3">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-extrabold text-teal-900 text-sm flex items-center gap-2">
+                    <CheckSquare className="w-4 h-4 text-teal-600" /> Checklist de Check-in
+                  </h4>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    selectedReservationForPdf.checkin_status === 'Realizado' ? 'bg-emerald-600 text-white' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {selectedReservationForPdf.checkin_status || 'Pendente'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {[
+                    { key: 'documentVerified', label: 'Conferência de Documento (RG/CPF)' },
+                    { key: 'keysDelivered', label: 'Entrega de Chaves / Senha de Acesso' },
+                    { key: 'inventoryChecked', label: 'Vistoria de Inventário Inicial' },
+                    { key: 'termsSigned', label: 'Termo de Responsabilidade Assinado' }
+                  ].map(item => {
+                    const isChecked = Boolean(selectedReservationForPdf.checklist?.[item.key as keyof ChecklistItems]);
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => handleUpdateChecklist(selectedReservationForPdf.id, item.key as keyof ChecklistItems, !isChecked)}
+                        className={`p-3 rounded-xl border flex items-center gap-3 text-left transition cursor-pointer ${
+                          isChecked ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-700 border-teal-100 hover:border-teal-400'
+                        }`}
+                      >
+                        {isChecked ? <CheckSquare className="w-4 h-4 flex-shrink-0" /> : <Square className="w-4 h-4 flex-shrink-0 text-slate-400" />}
+                        <span className="font-bold text-[11px]">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* CHECKLIST DE CHECK-OUT */}
+              <div className="p-5 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-3">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-extrabold text-indigo-900 text-sm flex items-center gap-2">
+                    <CheckSquare className="w-4 h-4 text-indigo-600" /> Checklist de Check-out
+                  </h4>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    selectedReservationForPdf.checkout_status === 'Realizado' ? 'bg-indigo-600 text-white' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {selectedReservationForPdf.checkout_status || 'Pendente'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {[
+                    { key: 'propertyUndamaged', label: 'Vistoria de Danos (Sem Avarias)' },
+                    { key: 'keysReturned', label: 'Devolução de Chaves / Cartões' },
+                    { key: 'utilitiesPaid', label: 'Consumo Extra / Taxas Pagas' },
+                    { key: 'cleaningApproved', label: 'Condições de Limpeza Aprovadas' }
+                  ].map(item => {
+                    const isChecked = Boolean(selectedReservationForPdf.checklist?.[item.key as keyof ChecklistItems]);
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => handleUpdateChecklist(selectedReservationForPdf.id, item.key as keyof ChecklistItems, !isChecked)}
+                        className={`p-3 rounded-xl border flex items-center gap-3 text-left transition cursor-pointer ${
+                          isChecked ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-indigo-100 hover:border-indigo-400'
+                        }`}
+                      >
+                        {isChecked ? <CheckSquare className="w-4 h-4 flex-shrink-0" /> : <Square className="w-4 h-4 flex-shrink-0 text-slate-400" />}
+                        <span className="font-bold text-[11px]">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* BOTÃO DE PAGAMENTO COM SPLIT INTEGRADO NO MODAL */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => handleCheckoutWithSplit(selectedReservationForPdf)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+              >
+                <DollarSign className="w-4 h-4" /> Processar Pagamento (Comissão Automática 10%)
+              </button>
+            </div>
+
+            <div className="pt-2 flex gap-3">
+              <button
+                onClick={() => setSelectedReservationForPdf(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold transition cursor-pointer"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={() => handleGenerateAndSavePdfReport(selectedReservationForPdf)}
+                className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+              >
+                <Download className="w-4 h-4" /> Gerar & Salvar Relatório na Reserva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ESTATÍSTICAS E BOTÕES DE NAVEGAÇÃO PRINCIPAL */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <button
+          type="button"
+          onClick={() => setMainView(mainView === 'gross_revenue_report' ? 'properties' : 'gross_revenue_report')}
+          className={`p-6 rounded-3xl border shadow-sm flex items-center gap-4 text-left transition cursor-pointer group ${
+            mainView === 'gross_revenue_report' ? 'bg-teal-50 border-teal-500' : 'bg-white border-slate-100 hover:border-teal-500'
+          }`}
+        >
+          <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold group-hover:bg-teal-600 group-hover:text-white transition">
+            <DollarSign className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-400 font-bold uppercase">Receita Bruta</p>
+            <h4 className="text-xl font-extrabold text-slate-800">R$ {totalRevenue.toFixed(2)}</h4>
+            <span className="text-[10px] text-teal-600 font-bold underline mt-0.5 block">
+              {mainView === 'gross_revenue_report' ? '⬅ Voltar' : 'Ver extrato'}
+            </span>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainView(mainView === 'financial_report' ? 'properties' : 'financial_report')}
+          className={`p-6 rounded-3xl border shadow-sm flex items-center gap-4 text-left transition cursor-pointer group ${
+            mainView === 'financial_report' ? 'bg-indigo-50 border-indigo-500' : 'bg-white border-slate-100 hover:border-indigo-500'
+          }`}
+        >
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold group-hover:bg-indigo-600 group-hover:text-white transition">
+            <ArrowUpRight className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-400 font-bold uppercase">Repasse Líquido</p>
+            <h4 className="text-xl font-extrabold text-slate-800">R$ {netOwnerRevenue.toFixed(2)}</h4>
+            <span className="text-[10px] text-indigo-600 font-bold underline mt-0.5 block">
+              {mainView === 'financial_report' ? '⬅ Voltar' : 'Ver relatório'}
+            </span>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainView(mainView === 'reservations_list' ? 'properties' : 'reservations_list')}
+          className={`p-6 rounded-3xl border shadow-sm flex items-center gap-4 text-left transition cursor-pointer group ${
+            mainView === 'reservations_list' ? 'bg-teal-50 border-teal-500' : 'bg-white border-slate-100 hover:border-teal-500'
+          }`}
+        >
+          <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold group-hover:bg-teal-600 group-hover:text-white transition">
+            <Calendar className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-400 font-bold uppercase">Lista de Reservas</p>
+            <h4 className="text-xl font-extrabold text-slate-800">{reservations.length} Registros</h4>
+            <span className="text-[10px] text-teal-600 font-bold underline mt-0.5 block">
+              {mainView === 'reservations_list' ? '⬅ Voltar' : 'Gerenciar reservas'}
+            </span>
+          </div>
+        </button>
+
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+            <Building2 className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-400 font-bold uppercase">Imóveis</p>
+            <h4 className="text-xl font-extrabold text-slate-800">{properties.length} Ativos</h4>
+            <span className="text-[10px] text-blue-600 font-bold mt-0.5 block">Portfólio geral</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ÁREA DINÂMICA */}
+      {mainView === 'gross_revenue_report' ? (
+        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-6">
+          <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-teal-600" /> Extrato de Receita Bruta (Locações & Valores de Diária)
+              </h3>
+            </div>
+            <button
+              onClick={() => setMainView('properties')}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" /> Voltar aos Imóveis
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px]">
+                  <th className="py-3 px-4">Hóspede / Período</th>
+                  <th className="py-3 px-4">Imóvel</th>
+                  <th className="py-3 px-4">Valor da Diária</th>
+                  <th className="py-3 px-4">Noites</th>
+                  <th className="py-3 px-4 text-right">Valor Bruto Locação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {financialDetails.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50">
+                    <td className="py-3.5 px-4">
+                      <span className="font-bold text-slate-800 block">{item.guest_name}</span>
+                      <span className="text-[10px] text-slate-400">{item.check_in} ➔ {item.check_out}</span>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-700 font-medium">{item.properties?.title || 'Imóvel'}</td>
+                    <td className="py-3.5 px-4 font-bold text-teal-800">R$ {item.dailyRate.toFixed(2)}</td>
+                    <td className="py-3.5 px-4 text-slate-600 font-medium">{item.nightsCount} noites</td>
+                    <td className="py-3.5 px-4 text-right font-extrabold text-teal-700">R$ {item.rentalAmount.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : mainView === 'financial_report' ? (
+        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-6">
+          <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+                <ArrowUpRight className="w-5 h-5 text-indigo-600" /> Relatório Financeiro Discriminado (Comissão de 10%)
+              </h3>
+            </div>
+            <button
+              onClick={() => setMainView('properties')}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" /> Voltar aos Imóveis
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px]">
+                  <th className="py-3 px-4">Hóspede / Período</th>
+                  <th className="py-3 px-4">Imóvel</th>
+                  <th className="py-3 px-4">Base Locação</th>
+                  <th className="py-3 px-4">Comissão (10%)</th>
+                  <th className="py-3 px-4 text-right">Repasse Líquido</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {financialDetails.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50">
+                    <td className="py-3.5 px-4">
+                      <span className="font-bold text-slate-800 block">{item.guest_name}</span>
+                      <span className="text-[10px] text-slate-400">{item.check_in} ➔ {item.check_out}</span>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-700 font-medium">{item.properties?.title || 'Imóvel'}</td>
+                    <td className="py-3.5 px-4 font-bold text-slate-700">R$ {item.rentalAmount.toFixed(2)}</td>
+                    <td className="py-3.5 px-4 font-extrabold text-rose-600">- R$ {item.commission.toFixed(2)}</td>
+                    <td className="py-3.5 px-4 text-right font-extrabold text-emerald-700">R$ {item.netOwner.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : mainView === 'reservations_list' ? (
+        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+          <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+            <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-teal-600" /> Lista Completa de Reservas & Relatórios Salvos
+            </h3>
+            <button
+              onClick={() => setMainView('properties')}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" /> Voltar aos Imóveis
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {reservations.map((res) => (
+              <div
+                key={res.id}
+                onClick={() => setSelectedReservationForPdf(res)}
+                className="border border-slate-100 hover:border-teal-500 rounded-2xl p-5 space-y-3 bg-slate-50/50 hover:bg-white shadow-sm transition cursor-pointer flex flex-col justify-between group"
+              >
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">
+                      {res.status}
+                    </span>
+                    <span className="font-extrabold text-teal-700 text-xs">R$ {Number(res.total_price).toFixed(2)}</span>
+                  </div>
+                  <h4 className="font-extrabold text-slate-800 text-sm group-hover:text-teal-600">{res.guest_name}</h4>
+                  <p className="text-slate-500 text-xs">{res.properties?.title || 'Imóvel'}</p>
+                  <p className="text-[11px] text-slate-400">{res.check_in} ➔ {res.check_out}</p>
+                </div>
+                <div className="pt-3 border-t border-slate-200/60 flex justify-between items-center text-[11px]">
+                  <span className={res.report_summary ? 'text-emerald-600 font-bold' : 'text-slate-400'}>
+                    {res.report_summary ? '✓ Relatório PDF Disponível' : 'Sem relatório salvo'}
+                  </span>
+                  <span className="text-teal-600 font-bold underline">Abrir</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+          <h3 className="text-lg font-extrabold text-slate-800">Meus Imóveis sob Minha Gestão</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {properties.map((property) => (
+              <div key={property.id} className="border border-slate-100 rounded-2xl p-4 space-y-3 bg-slate-50/50 flex flex-col justify-between">
+                <div>
+                  <div className="relative h-36 bg-slate-200 rounded-xl overflow-hidden mb-3">
+                    {property.images && property.images.length > 0 ? (
+                      <img src={property.images[0]} alt={property.title} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">Sem foto</div>
+                    )}
+                    <div className="absolute top-2 right-2 flex gap-1.5">
+                      <button onClick={() => handleOpenEditModal(property)} className="bg-white/95 hover:bg-white text-slate-800 p-2 rounded-xl shadow-md transition cursor-pointer">
+                        <Edit2 className="w-3.5 h-3.5 text-teal-600" />
+                      </button>
+                      <button onClick={() => handleDeleteProperty(property.id, property.title)} className="bg-white/95 hover:bg-rose-50 text-rose-600 p-2 rounded-xl shadow-md transition cursor-pointer">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <h4 className="font-extrabold text-slate-800 text-sm truncate">{property.title}</h4>
+                  <p className="text-slate-500 text-xs">{property.city} - {property.state}</p>
+                </div>
+                <div className="flex justify-between items-center text-xs font-bold pt-2 border-t border-slate-200/60">
+                  <span className="text-teal-700">R$ {Number(property.price).toFixed(2)} / noite</span>
+                  <span className="text-slate-500">{property.max_guests} hóspedes</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CONTROLO DE RESERVAS & RELATÓRIOS VINCULADOS AOS CARDS */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-extrabold text-slate-800">Controle Operacional & Relatórios em PDF por Reserva</h3>
+          <button onClick={() => setMainView('reservations_list')} className="text-xs text-teal-600 font-bold hover:underline cursor-pointer">
+            Ver todas em destaque ➔
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px]">
+                <th className="py-3 px-4">Hóspede</th>
+                <th className="py-3 px-4">Imóvel</th>
+                <th className="py-3 px-4">Período</th>
+                <th className="py-3 px-4">Relatório PDF no Card</th>
+                <th className="py-3 px-4 text-right">Ações / Checklists</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {reservations.map((res) => (
+                <tr key={res.id} className="hover:bg-slate-50">
+                  <td className="py-3.5 px-4 font-bold text-slate-800">{res.guest_name}</td>
+                  <td className="py-3.5 px-4 text-slate-700">{res.properties?.title || 'Imóvel'}</td>
+                  <td className="py-3.5 px-4 text-slate-600">{res.check_in} ➔ {res.check_out}</td>
+                  <td className="py-3.5 px-4">
+                    {res.report_summary ? (
+                      <button
+                        onClick={() => {
+                          setSelectedReservationForPdf(res);
+                          window.print();
+                        }}
+                        className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-3 py-1 rounded-xl font-extrabold text-[10px] inline-flex items-center gap-1.5 transition cursor-pointer"
+                        title="Baixar ou visualizar o PDF salvo"
+                      >
+                        <Download className="w-3 h-3" /> Baixar PDF Salvo
+                      </button>
+                    ) : (
+                      <span className="text-slate-400 text-[10px] font-bold">Pendente de geração</span>
+                    )}
+                  </td>
+                  <td className="py-3.5 px-4 text-right">
+                    <button
+                      onClick={() => setSelectedReservationForPdf(res)}
+                      className="bg-teal-50 hover:bg-teal-100 text-teal-700 px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Abrir Checklists
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,5 +1,6 @@
-import { Star, MapPin, BedDouble, Bath, Users } from 'lucide-react';
+import React from 'react';
 import type { AnuncioExterno } from '@/lib/types';
+import { MapPin, Bed, Bath, Users, Star } from 'lucide-react';
 
 interface PropertyCardProps {
   anuncio: AnuncioExterno;
@@ -7,55 +8,71 @@ interface PropertyCardProps {
 }
 
 export default function PropertyCard({ anuncio, onClick }: PropertyCardProps) {
+  const safePrice = Number(anuncio?.price) || 0;
+  const safeRating = Number(anuncio?.rating) || 5.0;
+  const safeBedrooms = Number(anuncio?.bedrooms) || 1;
+  const safeBathrooms = Number(anuncio?.bathrooms) || 1;
+  const safeGuests = Number(anuncio?.maxGuests) || 2;
+  const sourceName = anuncio?.source || 'GoFérias Direto';
+
   return (
-    <button
+    <div 
       onClick={onClick}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:shadow-lg hover:shadow-slate-200/60 hover:-translate-y-0.5"
+      className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col justify-between"
     >
-      <div className="relative aspect-[4/3] overflow-hidden">
-        <img
-          src={anuncio.imageUrl}
-          alt={anuncio.title}
-          loading="lazy"
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-        />
-        <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-700 backdrop-blur-sm">
-          {anuncio.source}
-        </span>
-        <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-          <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-          {anuncio.rating.toFixed(1)}
-        </span>
-      </div>
-      <div className="flex flex-1 flex-col p-4">
-        <div className="flex items-center gap-1 text-xs font-medium text-slate-500">
-          <MapPin className="h-3.5 w-3.5" />
-          {anuncio.location}
-        </div>
-        <h3 className="mt-1 line-clamp-1 text-sm font-bold text-slate-900">{anuncio.title}</h3>
-        <p className="mt-1 line-clamp-2 text-xs text-slate-500">{anuncio.description}</p>
-        <div className="mt-3 flex items-center gap-3 text-xs text-slate-600">
-          <span className="flex items-center gap-1">
-            <BedDouble className="h-3.5 w-3.5 text-slate-400" />
-            {anuncio.bedrooms} quartos
-          </span>
-          <span className="flex items-center gap-1">
-            <Bath className="h-3.5 w-3.5 text-slate-400" />
-            {anuncio.bathrooms} ban.
-          </span>
-          <span className="flex items-center gap-1">
-            <Users className="h-3.5 w-3.5 text-slate-400" />
-            {anuncio.maxGuests}
+      <div>
+        <div className="relative h-48 bg-slate-100">
+          <img 
+            src={anuncio?.images?.[0] || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80'} 
+            alt={anuncio?.title || 'Imóvel'} 
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute top-3 left-3 flex gap-2">
+            <span className="bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold text-slate-800 shadow-sm">
+              {anuncio?.propertyType || 'Imóvel'}
+            </span>
+          </div>
+          
+          {/* Etiqueta de Origem da Plataforma */}
+          <span className="absolute top-3 right-3 bg-teal-900/80 backdrop-blur-md text-white px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shadow-sm">
+            {sourceName}
           </span>
         </div>
-        <div className="mt-3 flex items-baseline justify-between border-t border-slate-100 pt-3">
-          <span className="text-lg font-bold text-slate-900">
-            R$ {anuncio.pricePerNight.toLocaleString('pt-BR')}
-            <span className="text-xs font-normal text-slate-400"> /noite</span>
-          </span>
-          <span className="text-xs text-slate-400">{anuncio.reviews} avaliações</span>
+
+        <div className="p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-slate-800 line-clamp-1">{anuncio?.title || 'Título indisponível'}</h3>
+            <div className="flex items-center gap-1 text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+              <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+              <span>{safeRating.toFixed(1)}</span>
+            </div>
+          </div>
+          
+          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5 text-teal-600 flex-shrink-0" />
+            {anuncio?.location || `${anuncio?.city || ''} - ${anuncio?.state || ''}`}
+          </p>
+          
+          <div className="flex items-center gap-4 text-xs font-medium text-slate-600 pt-2 border-t border-slate-50">
+            <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5 text-slate-400" /> {safeBedrooms} Quartos</span>
+            <span className="flex items-center gap-1"><Bath className="w-3.5 h-3.5 text-slate-400" /> {safeBathrooms} Banheiros</span>
+            <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5 text-slate-400" /> Até {safeGuests} hóspedes</span>
+          </div>
         </div>
       </div>
-    </button>
+
+      <div className="p-6 pt-0 flex items-center justify-between border-t border-slate-50 mt-4">
+        <div>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Diária</span>
+          <span className="text-lg font-extrabold text-teal-700">
+            R$ {safePrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </span>
+        </div>
+        
+        <span className="text-xs font-bold text-teal-600 hover:underline">
+          Ver detalhes →
+        </span>
+      </div>
+    </div>
   );
 }

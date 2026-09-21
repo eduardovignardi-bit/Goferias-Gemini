@@ -4,11 +4,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('⚠️ As variáveis de ambiente do Supabase não foram configuradas. O login e dados reais não funcionarão até que sejam definidas.')
+  throw new Error('Faltam as variáveis de ambiente do Supabase no arquivo .env')
 }
 
-// Cria o cliente do Supabase para ser usado em todo o projeto
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
-)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)

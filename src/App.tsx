@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
-import Marketplace from './components/marketplace/Marketplace';
+import { Marketplace } from './components/marketplace/Marketplace'; // Corrigido para importação nomeada
 import { OwnerPanel } from './components/panel/OwnerPanel';
 import { AuthModal } from './components/panel/AuthModal';
 import { supabase } from './lib/supabase';
