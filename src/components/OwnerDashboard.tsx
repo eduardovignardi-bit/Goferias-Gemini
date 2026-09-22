@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Building2, Calendar, DollarSign, Plus, Trash2, CheckCircle2, AlertTriangle, MapPin, X } from 'lucide-react';
+import { Building2, Calendar, DollarSign, Plus, Trash2, CheckCircle2, AlertTriangle, MapPin, X, Lock } from 'lucide-react';
 
 interface Property {
   id: string;
@@ -13,6 +13,7 @@ interface Property {
   price: number;
   cleaning_fee: number;
   images: string[];
+  user_id?: string;
 }
 
 interface ReservationWithProperty {
@@ -35,6 +36,8 @@ export const OwnerDashboard: React.FC = () => {
   const [reservations, setReservations] = useState<ReservationWithProperty[]>([]);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isNotAuthenticated, setIsNotAuthenticated] = useState(false);
 
   // Estados do Modal de Novo Imóvel
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -59,27 +62,51 @@ export const OwnerDashboard: React.FC = () => {
     try {
       setLoading(true);
       setDbError(null);
+      setIsNotAuthenticated(false);
 
-      // Buscar Imóveis
-      const propRes = await supabase.from('properties').select('*').order('created_at', { ascending: false });
+      // Obter o utilizador autenticado atual
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !authData?.user) {
+        setIsNotAuthenticated(true);
+        setProperties([]);
+        setReservations([]);
+        setLoading(false);
+        return;
+      }
+
+      const userId = authData.user.id;
+      setCurrentUserId(userId);
+
+      // Buscar Imóveis estritamente filtrados pelo user_id do utilizador logado
+      const propRes = await supabase
+        .from('properties')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+        
       if (propRes.error) throw propRes.error;
-      if (propRes.data) setProperties(propRes.data);
+      const userProperties = propRes.data || [];
+      setProperties(userProperties);
 
-      // Buscar Reservas com join nas propriedades
-      let resQuery = await supabase
+      const propertyIds = userProperties.map(p => p.id);
+
+      if (propertyIds.length === 0) {
+        setReservations([]);
+        setLoading(false);
+        return;
+      }
+
+      // Buscar Reservas apenas para os imóveis deste proprietário
+      const resQuery = await supabase
         .from('reservations')
         .select('*, properties(title, city)')
+        .in('property_id', propertyIds)
         .order('check_in', { ascending: false });
-
-      if (resQuery.error) {
-        console.warn('Erro ao buscar com join, tentando busca simples em reservations:', resQuery.error);
-        resQuery = await supabase.from('reservations').select('*').order('check_in', { ascending: false });
-      }
 
       if (resQuery.error) throw resQuery.error;
 
       if (resQuery.data) {
-        // Se a reserva vier sem status ou se quisermos forçar novas do marketplace como Pendente caso venham em branco, tratamos aqui:
         const formattedReservations = resQuery.data.map(res => ({
           ...res,
           status: res.status || 'Pendente'
@@ -89,7 +116,7 @@ export const OwnerDashboard: React.FC = () => {
     } catch (err: any) {
       console.error('Erro ao carregar dados do painel:', err);
       setDbError(err.message || 'Erro desconhecido ao carregar dados.');
-      showToast('Erro ao carregar dados do painel.', 'error');
+      showToast(err.message || 'Erro ao carregar dados do painel.', 'error');
     } finally {
       setLoading(false);
     }
@@ -103,6 +130,10 @@ export const OwnerDashboard: React.FC = () => {
   const handleCreateProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      if (!currentUserId) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
+
       const propertyData = {
         title: newTitle,
         property_type: newType,
@@ -112,7 +143,8 @@ export const OwnerDashboard: React.FC = () => {
         bedrooms: Number(newBedrooms),
         price: Number(newPrice),
         cleaning_fee: Number(newCleaningFee),
-        images: [newImageUrl || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688']
+        images: [newImageUrl || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688'],
+        user_id: currentUserId
       };
 
       const { error } = await supabase.from('properties').insert([propertyData]);
@@ -123,9 +155,9 @@ export const OwnerDashboard: React.FC = () => {
       setNewTitle('');
       setNewImageUrl('');
       fetchOwnerData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao cadastrar imóvel:', err);
-      showToast('Erro ao cadastrar imóvel.', 'error');
+      showToast(err.message || 'Erro ao cadastrar imóvel.', 'error');
     }
   };
 
@@ -164,6 +196,41 @@ export const OwnerDashboard: React.FC = () => {
 
   const activeReservationsCount = reservations.filter(r => r.status === 'Confirmada').length;
 
+  // TELA DE BLOQUEIO SE NÃO ESTIVER AUTENTICADO
+  if (isNotAuthenticated) {
+    return (
+      <div className="max-w-2xl mx-auto my-16 bg-white p-10 rounded-3xl border border-slate-100 shadow-xl text-center space-y-6">
+        <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+          <Lock className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-extrabold text-slate-800">Acesso Restrito ao Painel</h2>
+          <p className="text-sm text-slate-500 max-w-md mx-auto">
+            Você precisa estar autenticado na sua conta de proprietário para visualizar o painel operacional, gerir reservas e consultar receitas.
+          </p>
+        </div>
+        <div className="pt-4 flex justify-center gap-4">
+          <a
+            href="/"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3 rounded-2xl font-bold text-xs transition"
+          >
+            Voltar ao Marketplace
+          </a>
+          <button
+            onClick={() => {
+              const loginBtn = document.querySelector('button.bg-teal-600, header button') as HTMLButtonElement;
+              if (loginBtn) loginBtn.click();
+              else alert('Por favor, clique no botão "Entrar" no topo da página.');
+            }}
+            className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-2xl font-bold text-xs shadow-lg transition"
+          >
+            Fazer Login Agora
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 relative">
 
@@ -198,8 +265,8 @@ export const OwnerDashboard: React.FC = () => {
         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-xs flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
           <div>
-            <span className="font-bold block">Aviso sobre a tabela de reservas:</span>
-            <span>{dbError}. Certifique-se de que a tabela <code className="bg-amber-100 px-1 py-0.5 rounded">reservations</code> foi criada no Supabase.</span>
+            <span className="font-bold block">Aviso:</span>
+            <span>{dbError}</span>
           </div>
         </div>
       )}
@@ -237,7 +304,7 @@ export const OwnerDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Seção de Controle de Reservas (Com Status e Ações de Confirmação) */}
+      {/* Seção de Controle de Reservas */}
       <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-extrabold text-slate-800">Controle de Reservas</h3>
@@ -248,7 +315,7 @@ export const OwnerDashboard: React.FC = () => {
           <div className="text-center py-8 text-slate-400 text-xs font-medium">A carregar reservas...</div>
         ) : reservations.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-xs font-medium bg-slate-50 rounded-2xl">
-            Nenhuma reserva registrada até o momento.
+            Nenhuma reserva registrada para os seus imóveis.
           </div>
         ) : (
           <div className="overflow-x-auto">
