@@ -62,6 +62,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setError(err.message || 'Erro ao conectar com o Google.');
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-200">
@@ -87,6 +104,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <span>{error}</span>
             </div>
           )}
+
+          {/* Botão de Login com Google */}
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-2.5 rounded-xl transition shadow-sm text-sm disabled:opacity-50"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M23.745 12.27c-.07-.8-.67-1.42-1.47-1.42H12v4.8h6.56c-.28 1.48-1.5 4.14-6.56 4.14-3.95 0-7.17-3.22-7.17-7.17s3.22-7.17 7.17-7.17c2.25 0 3.76.96 4.62 1.78l3.58-3.58C17.97 2.15 15.22 1 12 1 5.92 1 1 5.92 1 12s4.92 11 11 11c6.35 0 10.56-4.47 10.56-10.78 0-.33-.03-.66-.07-.95z"
+              />
+              <path
+                fill="#34A853"
+                d="M3.71 14.82c-.19-.57-.3-1.18-.3-1.82s.11-1.25.3-1.82V7.27H.69C.25 8.14 0 9.12 0 10.15s.25 2.01.69 2.88l3.02-1.81z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M12 5.83c1.7 0 3.21.58 4.41 1.73l3.3-3.3C17.61 2.5 15.01 1.5 12 1.5 7.42 1.5 3.5 4.1 1.55 7.82l3.02 2.35C5.29 7.6 8.35 5.83 12 5.83z"
+              />
+              <path
+                fill="#EA4335"
+                d="M23.745 12.27c-.07-.8-.67-1.42-1.47-1.42H12v4.8h6.56c-.28 1.48-1.5 4.14-6.56 4.14-3.95 0-7.17-3.22-7.17-7.17s3.22-7.17 7.17-7.17c2.25 0 3.76.96 4.62 1.78l3.58-3.58C17.97 2.15 15.22 1 12 1 5.92 1 1 5.92 1 12s4.92 11 11 11c6.35 0 10.56-4.47 10.56-10.78 0-.33-.03-.66-.07-.95z"
+              />
+            </svg>
+            Continuar com o Google
+          </button>
+
+          <div className="relative flex py-2 items-center">
+            <div className="flex-grow border-t border-slate-200"></div>
+            <span className="flex-shrink mx-4 text-xs text-slate-400 uppercase">ou com e-mail</span>
+            <div className="flex-grow border-t border-slate-200"></div>
+          </div>
 
           {isSignUp && (
             <div>
