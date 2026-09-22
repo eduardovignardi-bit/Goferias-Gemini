@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Building2, Calendar, DollarSign, Plus, Trash2, X, Image as ImageIcon, Upload, Link as LinkIcon, Download, Edit2, Sparkles, ShieldCheck, ArrowUpRight, ArrowLeft, FileText, CheckSquare, Square, AlertCircle, CheckCircle } from 'lucide-react';
+import { Building2, Calendar, DollarSign, Plus, Trash2, X, Image as ImageIcon, Upload, Link as LinkIcon, Download, Edit2, Sparkles, ShieldCheck, ArrowUpRight, ArrowLeft, FileText, CheckSquare, Square, AlertCircle, CheckCircle, Lock } from 'lucide-react';
 
 interface Property {
   id: string;
@@ -60,6 +60,7 @@ interface ReservationWithProperty {
 }
 
 export const OwnerPanel: React.FC = () => {
+  const [isNotAuthenticated, setIsNotAuthenticated] = useState(false);
   const [properties, setProperties] = useState<Property[]>([]);
   const [reservations, setReservations] = useState<ReservationWithProperty[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +97,18 @@ export const OwnerPanel: React.FC = () => {
   const fetchOwnerData = async () => {
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      setIsNotAuthenticated(false);
+
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      // Se não houver utilizador logado, bloqueia o painel imediatamente
+      if (authError || !user) {
+        setIsNotAuthenticated(true);
+        setProperties([]);
+        setReservations([]);
+        setLoading(false);
+        return;
+      }
 
       let propQuery = supabase.from('properties').select('*');
       if (user) {
@@ -473,6 +485,35 @@ export const OwnerPanel: React.FC = () => {
       showFeedback(err.message || 'Erro ao processar pagamento.', 'error');
     }
   };
+
+  // TELA DE BLOQUEIO SE NÃO ESTIVER AUTENTICADO
+  if (isNotAuthenticated) {
+    return (
+      <div className="max-w-2xl mx-auto my-16 bg-white p-10 rounded-3xl border border-slate-100 shadow-xl text-center space-y-6">
+        <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+          <Lock className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-extrabold text-slate-800">Acesso Restrito ao Painel</h2>
+          <p className="text-sm text-slate-500 max-w-md mx-auto">
+            Você precisa estar autenticado na sua conta de proprietário para visualizar o painel operacional, gerir reservas e consultar receitas.
+          </p>
+        </div>
+        <div className="pt-4 flex justify-center gap-4">
+          <button
+            onClick={() => {
+              const loginBtn = document.querySelector('header button.bg-teal-600, header button') as HTMLButtonElement;
+              if (loginBtn) loginBtn.click();
+              else alert('Por favor, clique no botão "Entrar" no topo da página.');
+            }}
+            className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-2xl font-bold text-xs shadow-lg transition cursor-pointer"
+          >
+            Fazer Login Agora
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const confirmedReservations = reservations.filter(r => r.status === 'Confirmada');
   const platformCommissionRate = 0.10;
