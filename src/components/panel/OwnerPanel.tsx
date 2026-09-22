@@ -499,19 +499,22 @@ export const OwnerPanel: React.FC = () => {
             Você precisa estar autenticado na sua conta de proprietário para visualizar o painel operacional, gerir reservas e consultar receitas.
           </p>
         </div>
-        <div className="pt-4 flex justify-center gap-4">
+<div className="pt-4 flex justify-center gap-4">
           <button
             onClick={() => {
-              const loginBtn = document.querySelector('header button.bg-teal-600, header button') as HTMLButtonElement;
-              if (loginBtn) loginBtn.click();
-              else alert('Por favor, clique no botão "Entrar" no topo da página.');
+              // Procura o botão "Entrar" real na Navbar do topo e clica nele
+              const loginBtn = document.querySelector('header button:last-child') as HTMLButtonElement;
+              if (loginBtn) {
+                loginBtn.click();
+              } else {
+                alert('Por favor, clique no botão "Entrar" no topo da página.');
+              }
             }}
             className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-2xl font-bold text-xs shadow-lg transition cursor-pointer"
           >
             Fazer Login Agora
           </button>
-        </div>
-      </div>
+        </div>      </div>
     );
   }
 
