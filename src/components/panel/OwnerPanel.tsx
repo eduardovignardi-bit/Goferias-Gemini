@@ -110,30 +110,34 @@ export const OwnerPanel: React.FC = () => {
         return;
       }
 
-      let propQuery = supabase.from('properties').select('*');
-      if (user) {
-        propQuery = propQuery.eq('owner_id', user.id);
+      // Busca estritamente os imóveis do proprietário logado
+      const { data: propData, error: propError } = await supabase
+        .from('properties')
+        .select('*')
+        .eq('owner_id', user.id);
+
+      if (propError) throw propError;
+      setProperties(propData || []);
+
+      const propertyIds = (propData || []).map(p => p.id);
+
+      if (propertyIds.length === 0) {
+        setReservations([]);
+        setLoading(false);
+        return;
       }
 
-      const { data: propData, error: propError } = await propQuery;
-      if (propError) {
-        const { data: fallbackData } = await supabase.from('properties').select('*');
-        if (fallbackData) setProperties(fallbackData);
-      } else if (propData) {
-        setProperties(propData);
-      }
-
-      let resQuery = await supabase
+      // Busca reservas apenas para os imóveis deste proprietário
+      const { data: resData, error: resError } = await supabase
         .from('reservations')
         .select('*, properties(title, city, cleaning_fee, price)')
+        .in('property_id', propertyIds)
         .order('check_in', { ascending: false });
 
-      if (resQuery.error) {
-        resQuery = await supabase.from('reservations').select('*');
-      }
+      if (resError) throw resError;
 
-      if (resQuery.data) {
-        const formattedReservations = resQuery.data.map((res: any) => ({
+      if (resData) {
+        const formattedReservations = resData.map((res: any) => ({
           ...res,
           status: res.status || 'Pendente',
           checkin_status: res.checkin_status || 'Pendente',
@@ -195,6 +199,7 @@ export const OwnerPanel: React.FC = () => {
 
     try {
       setImporting(true);
+      const { data: { user } } = await supabase.auth.getUser();
       const lowerUrl = importUrl.toLowerCase();
       let platformName = lowerUrl.includes('airbnb') ? 'Airbnb' : lowerUrl.includes('booking') ? 'Booking.com' : 'Plataforma Externa';
 
@@ -210,7 +215,7 @@ export const OwnerPanel: React.FC = () => {
         cleaning_fee: 150,
         images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
         platform: 'external',
-        owner_id: null
+        owner_id: user?.id || null
       };
 
       const { error } = await supabase.from('properties').insert([importedPropertyData]);
@@ -233,6 +238,7 @@ export const OwnerPanel: React.FC = () => {
       showFeedback('A recolher e a encaminhar inventário para o Marketplace...', 'success');
       await new Promise(resolve => setTimeout(resolve, 1100));
 
+      const { data: { user } } = await supabase.auth.getUser();
       const catalogPool = [{
         title: 'Villa de Luxo com Piscina Infinita',
         property_type: 'Casa de Luxo',
@@ -245,7 +251,7 @@ export const OwnerPanel: React.FC = () => {
         cleaning_fee: 350,
         images: ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9'],
         platform: 'marketplace_batch',
-        owner_id: null
+        owner_id: user?.id || null
       }];
 
       const { error } = await supabase.from('properties').insert(catalogPool);
@@ -499,10 +505,9 @@ export const OwnerPanel: React.FC = () => {
             Você precisa estar autenticado na sua conta de proprietário para visualizar o painel operacional, gerir reservas e consultar receitas.
           </p>
         </div>
-<div className="pt-4 flex justify-center gap-4">
+        <div className="pt-4 flex justify-center gap-4">
           <button
             onClick={() => {
-              // Procura o botão "Entrar" real na Navbar do topo e clica nele
               const loginBtn = document.querySelector('header button:last-child') as HTMLButtonElement;
               if (loginBtn) {
                 loginBtn.click();
@@ -514,7 +519,8 @@ export const OwnerPanel: React.FC = () => {
           >
             Fazer Login Agora
           </button>
-        </div>      </div>
+        </div>
+      </div>
     );
   }
 
@@ -1086,35 +1092,41 @@ export const OwnerPanel: React.FC = () => {
       ) : (
         <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
           <h3 className="text-lg font-extrabold text-slate-800">Meus Imóveis sob Minha Gestão</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {properties.map((property) => (
-              <div key={property.id} className="border border-slate-100 rounded-2xl p-4 space-y-3 bg-slate-50/50 flex flex-col justify-between">
-                <div>
-                  <div className="relative h-36 bg-slate-200 rounded-xl overflow-hidden mb-3">
-                    {property.images && property.images.length > 0 ? (
-                      <img src={property.images[0]} alt={property.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">Sem foto</div>
-                    )}
-                    <div className="absolute top-2 right-2 flex gap-1.5">
-                      <button onClick={() => handleOpenEditModal(property)} className="bg-white/95 hover:bg-white text-slate-800 p-2 rounded-xl shadow-md transition cursor-pointer">
-                        <Edit2 className="w-3.5 h-3.5 text-teal-600" />
-                      </button>
-                      <button onClick={() => handleDeleteProperty(property.id, property.title)} className="bg-white/95 hover:bg-rose-50 text-rose-600 p-2 rounded-xl shadow-md transition cursor-pointer">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+          {properties.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 text-xs font-medium bg-slate-50 rounded-2xl">
+              Nenhum imóvel cadastrado na sua conta. Clique em "Cadastrar Novo Imóvel" acima.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {properties.map((property) => (
+                <div key={property.id} className="border border-slate-100 rounded-2xl p-4 space-y-3 bg-slate-50/50 flex flex-col justify-between">
+                  <div>
+                    <div className="relative h-36 bg-slate-200 rounded-xl overflow-hidden mb-3">
+                      {property.images && property.images.length > 0 ? (
+                        <img src={property.images[0]} alt={property.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">Sem foto</div>
+                      )}
+                      <div className="absolute top-2 right-2 flex gap-1.5">
+                        <button onClick={() => handleOpenEditModal(property)} className="bg-white/95 hover:bg-white text-slate-800 p-2 rounded-xl shadow-md transition cursor-pointer">
+                          <Edit2 className="w-3.5 h-3.5 text-teal-600" />
+                        </button>
+                        <button onClick={() => handleDeleteProperty(property.id, property.title)} className="bg-white/95 hover:bg-rose-50 text-rose-600 p-2 rounded-xl shadow-md transition cursor-pointer">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
+                    <h4 className="font-extrabold text-slate-800 text-sm truncate">{property.title}</h4>
+                    <p className="text-slate-500 text-xs">{property.city} - {property.state}</p>
                   </div>
-                  <h4 className="font-extrabold text-slate-800 text-sm truncate">{property.title}</h4>
-                  <p className="text-slate-500 text-xs">{property.city} - {property.state}</p>
+                  <div className="flex justify-between items-center text-xs font-bold pt-2 border-t border-slate-200/60">
+                    <span className="text-teal-700">R$ {Number(property.price).toFixed(2)} / noite</span>
+                    <span className="text-slate-500">{property.max_guests} hóspedes</span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center text-xs font-bold pt-2 border-t border-slate-200/60">
-                  <span className="text-teal-700">R$ {Number(property.price).toFixed(2)} / noite</span>
-                  <span className="text-slate-500">{property.max_guests} hóspedes</span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
