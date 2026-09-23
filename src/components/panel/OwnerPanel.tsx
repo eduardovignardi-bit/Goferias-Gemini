@@ -14,7 +14,7 @@ interface Property {
   price: number;
   cleaning_fee?: number;
   images?: string[];
-  owner_id?: string;
+  user_id?: string;
 }
 
 interface ChecklistItems {
@@ -110,11 +110,11 @@ export const OwnerPanel: React.FC = () => {
         return;
       }
 
-      // Busca estritamente os imóveis do proprietário logado
+      // Busca estritamente os imóveis do proprietário logado usando user_id
       const { data: propData, error: propError } = await supabase
         .from('properties')
         .select('*')
-        .eq('owner_id', user.id);
+        .eq('user_id', user.id);
 
       if (propError) throw propError;
       setProperties(propData || []);
@@ -215,7 +215,7 @@ export const OwnerPanel: React.FC = () => {
         cleaning_fee: 150,
         images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
         platform: 'external',
-        owner_id: user?.id || null
+        user_id: user?.id || null
       };
 
       const { error } = await supabase.from('properties').insert([importedPropertyData]);
@@ -251,7 +251,7 @@ export const OwnerPanel: React.FC = () => {
         cleaning_fee: 350,
         images: ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9'],
         platform: 'marketplace_batch',
-        owner_id: user?.id || null
+        user_id: user?.id || null
       }];
 
       const { error } = await supabase.from('properties').insert(catalogPool);
@@ -336,7 +336,7 @@ export const OwnerPanel: React.FC = () => {
         price: Number(newPrice) || 0,
         cleaning_fee: Number(newCleaningFee) || 0,
         images: finalImages,
-        owner_id: user?.id || null,
+        user_id: user?.id || null,
         platform: 'direct'
       };
 
