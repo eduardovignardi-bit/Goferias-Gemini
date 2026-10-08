@@ -9,6 +9,7 @@ type ChatMessage = {
 const MAX_MESSAGES = 100;
 const MAX_MESSAGE_LENGTH = 4_000;
 const MAX_HISTORY_LENGTH = 60_000;
+const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 function isChatMessage(value: unknown): value is ChatMessage {
   if (typeof value !== 'object' || value === null) return false;
@@ -138,14 +139,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     };
 
-    let result;
-    try {
-      result = await ai.models.generateContent({ model: 'gemini-1.5-flash', ...generationOptions });
-    } catch (error) {
-      if (!isRetryableGeminiError(error)) throw error;
-      result = await ai.models.generateContent({ model: 'gemini-1.5-pro', ...generationOptions });
+    let result: Awaited<ReturnType<typeof ai.models.generateContent>> | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt === 1) await delay(1500);
+      if (attempt === 2) await delay(3000);
+
+      try {
+        const model = attempt === 2 ? 'gemini-1.5-pro' : 'gemini-1.5-flash';
+        result = await ai.models.generateContent({ model, ...generationOptions });
+        break;
+      } catch (error) {
+        if (!isRetryableGeminiError(error) || attempt === 2) throw error;
+      }
     }
 
+    if (!result) throw new Error('A geração não retornou uma resposta.');
     return res.status(200).json({ message: result.text });
   } catch (error) {
     console.error('Erro ao consultar o assistente Gemini:', error);
