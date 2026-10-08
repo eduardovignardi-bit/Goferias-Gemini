@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Building2, Calendar, DollarSign, Plus, Trash2, X, Image as ImageIcon, Upload, Link as LinkIcon, Download, Edit2, Sparkles, ShieldCheck, ArrowUpRight, ArrowLeft, FileText, CheckSquare, Square, AlertCircle, CheckCircle, Lock } from 'lucide-react';
+import { PricingAssistant } from './PricingAssistant';
+import { PropertyForm } from './PropertyForm';
+import { OwnerReservations } from './OwnerReservations';
 
 interface Property {
   id: string;
@@ -11,6 +14,10 @@ interface Property {
   location?: string;
   max_guests: number;
   bedrooms: number;
+  bathrooms?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  preco_inteligente_ativo?: boolean;
   price: number;
   cleaning_fee?: number;
   images?: string[];
@@ -61,8 +68,11 @@ interface ReservationWithProperty {
 
 export const OwnerPanel: React.FC = () => {
   const [isNotAuthenticated, setIsNotAuthenticated] = useState(false);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  const [focusPricingPropertyId, setFocusPricingPropertyId] = useState<string | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [reservations, setReservations] = useState<ReservationWithProperty[]>([]);
+  const [updatingReservationId, setUpdatingReservationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [mainView, setMainView] = useState<'properties' | 'financial_report' | 'gross_revenue_report' | 'reservations_list'>('properties');
@@ -79,6 +89,9 @@ export const OwnerPanel: React.FC = () => {
   const [newLocation, setNewLocation] = useState('');
   const [newMaxGuests, setNewMaxGuests] = useState(4);
   const [newBedrooms, setNewBedrooms] = useState(2);
+  const [newBathrooms, setNewBathrooms] = useState(1);
+  const [newLatitude, setNewLatitude] = useState('');
+  const [newLongitude, setNewLongitude] = useState('');
   const [newPrice, setNewPrice] = useState(350);
   const [newCleaningFee, setNewCleaningFee] = useState(100);
   
@@ -104,6 +117,7 @@ export const OwnerPanel: React.FC = () => {
       // Se não houver utilizador logado, bloqueia o painel imediatamente
       if (authError || !user) {
         setIsNotAuthenticated(true);
+        setOwnerId(null);
         setProperties([]);
         setReservations([]);
         setLoading(false);
@@ -111,15 +125,26 @@ export const OwnerPanel: React.FC = () => {
       }
 
       // Busca estritamente os imóveis do proprietário logado usando user_id
+  setOwnerId(user.id);
+
       const { data: propData, error: propError } = await supabase
         .from('properties')
         .select('*')
         .eq('user_id', user.id);
 
       if (propError) throw propError;
-      setProperties(propData || []);
+      const userProperties = (Array.isArray(propData) ? propData : []).map((property) => ({
+        ...property,
+        bedrooms: property.quartos,
+        bathrooms: property.banheiros,
+        smart_pricing_active: property.preco_inteligente_ativo === true,
+        images: Array.isArray(property.images)
+          ? property.images.filter((image: unknown): image is string => typeof image === 'string' && !image.startsWith('blob:'))
+          : [],
+      }));
+      setProperties(userProperties);
 
-      const propertyIds = (propData || []).map(p => p.id);
+      const propertyIds = userProperties.map((property) => property.id);
 
       if (propertyIds.length === 0) {
         setReservations([]);
@@ -136,7 +161,7 @@ export const OwnerPanel: React.FC = () => {
 
       if (resError) throw resError;
 
-      if (resData) {
+      if (Array.isArray(resData)) {
         const formattedReservations = resData.map((res: any) => ({
           ...res,
           status: res.status || 'Pendente',
@@ -210,7 +235,8 @@ export const OwnerPanel: React.FC = () => {
         state: 'SC',
         location: 'Campeche / Região Leste',
         max_guests: 6,
-        bedrooms: 3,
+        quartos: 3,
+        banheiros: 1,
         price: 590,
         cleaning_fee: 150,
         images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
@@ -246,7 +272,8 @@ export const OwnerPanel: React.FC = () => {
         state: 'SC',
         location: 'Campeche Sul',
         max_guests: 10,
-        bedrooms: 5,
+        quartos: 5,
+        banheiros: 2,
         price: 1450,
         cleaning_fee: 350,
         images: ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9'],
@@ -296,6 +323,9 @@ export const OwnerPanel: React.FC = () => {
     setNewLocation('');
     setNewMaxGuests(4);
     setNewBedrooms(2);
+    setNewBathrooms(1);
+    setNewLatitude('');
+    setNewLongitude('');
     setNewPrice(350);
     setNewCleaningFee(100);
     setPreviewUrls([]);
@@ -312,6 +342,9 @@ export const OwnerPanel: React.FC = () => {
     setNewLocation(property.location || '');
     setNewMaxGuests(property.max_guests || 4);
     setNewBedrooms(property.bedrooms || 2);
+    setNewBathrooms(property.bathrooms ?? 1);
+    setNewLatitude(property.latitude == null ? '' : String(property.latitude));
+    setNewLongitude(property.longitude == null ? '' : String(property.longitude));
     setNewPrice(property.price || 350);
     setNewCleaningFee(property.cleaning_fee || 100);
     setPreviewUrls(property.images || []);
@@ -332,7 +365,10 @@ export const OwnerPanel: React.FC = () => {
         state: newState.trim() || 'SC',
         location: newLocation.trim() || newCity.trim(),
         max_guests: Number(newMaxGuests) || 4,
-        bedrooms: Number(newBedrooms) || 2,
+        quartos: Number(newBedrooms) || 2,
+        banheiros: Number(newBathrooms),
+        latitude: newLatitude.trim() ? Number(newLatitude) : null,
+        longitude: newLongitude.trim() ? Number(newLongitude) : null,
         price: Number(newPrice) || 0,
         cleaning_fee: Number(newCleaningFee) || 0,
         images: finalImages,
@@ -358,18 +394,31 @@ export const OwnerPanel: React.FC = () => {
     }
   };
 
-  const handleUpdateReservationStatus = async (reservationId: string, newStatus: string) => {
+  const handleUpdateReservationStatus = async (reservationId: string, newStatus: 'confirmed' | 'rejected') => {
+    if (!ownerId || properties.length === 0 || updatingReservationId) return;
+
+    setUpdatingReservationId(reservationId);
     try {
-      const { error } = await supabase.from('reservations').update({ status: newStatus }).eq('id', reservationId);
+      const { data, error } = await supabase
+        .from('reservations')
+        .update({ status: newStatus })
+        .eq('id', reservationId)
+        .in('property_id', properties.map((property) => property.id))
+        .select('id')
+        .maybeSingle();
+
       if (error) throw error;
+      if (!data) throw new Error('Não foi possível atualizar esta solicitação.');
 
       setReservations(prev => prev.map(res => res.id === reservationId ? { ...res, status: newStatus } : res));
       if (selectedReservationForPdf && selectedReservationForPdf.id === reservationId) {
         setSelectedReservationForPdf(prev => prev ? { ...prev, status: newStatus } : null);
       }
-      showFeedback(`Reserva marcada como "${newStatus}" com sucesso!`, 'success');
-    } catch (err: any) {
-      showFeedback(err.message || 'Erro ao atualizar status da reserva.', 'error');
+      showFeedback(newStatus === 'confirmed' ? 'Reserva aprovada.' : 'Solicitação recusada.', 'success');
+    } catch (err) {
+      showFeedback(err instanceof Error ? err.message : 'Erro ao atualizar status da reserva.', 'error');
+    } finally {
+      setUpdatingReservationId(null);
     }
   };
 
@@ -468,27 +517,24 @@ export const OwnerPanel: React.FC = () => {
     try {
       showFeedback('A gerar link de pagamento seguro com split (10% comissão)...', 'success');
 
-      const response = await fetch('https://seu-projeto.supabase.co/functions/v1/create-split-preference', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('create-split-preference', {
+        body: {
           reservationId: reservation.id,
           title: `Estadia em ${reservation.properties?.title || 'Imóvel GoFérias'}`,
           totalAmount: reservation.total_price,
           ownerAccountId: null,
-        }),
+        },
       });
 
-      const data = await response.json();
+      if (error) throw error;
+
       if (data.init_point) {
         window.location.href = data.init_point;
       } else {
-        throw new Error('Não foi possível inicializar a preferência de pagamento.');
+        throw new Error(data.error || 'Não foi possível inicializar a preferência de pagamento.');
       }
     } catch (err: any) {
-      showFeedback(err.message || 'Erro ao processar pagamento.', 'error');
+      showFeedback(err.message || 'Erro ao iniciar o pagamento.', 'error');
     }
   };
 
@@ -605,6 +651,15 @@ export const OwnerPanel: React.FC = () => {
         </div>
       </div>
 
+      <PropertyForm
+        ownerId={ownerId}
+        onCreated={(property) => {
+          setProperties((currentProperties) => [property, ...currentProperties]);
+          setFocusPricingPropertyId(property.id);
+          setMainView('properties');
+        }}
+      />
+
       {/* MODAL DE CADASTRO / EDIÇÃO */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -680,6 +735,23 @@ export const OwnerPanel: React.FC = () => {
                   <label className="block font-bold text-slate-600 mb-1">Quartos</label>
                   <input type="number" min="1" required value={newBedrooms} onChange={e => setNewBedrooms(Number(e.target.value))} className="w-full p-3 border rounded-xl" />
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Banheiros</label>
+                <input type="number" min="0" step="0.5" required value={newBathrooms} onChange={e => setNewBathrooms(Number(e.target.value))} className="w-full p-3 border rounded-xl" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Latitude</label>
+                  <input type="number" min="-90" max="90" step="any" value={newLatitude} onChange={e => setNewLatitude(e.target.value)} placeholder="-27.435" className="w-full p-3 border rounded-xl" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Longitude</label>
+                  <input type="number" min="-180" max="180" step="any" value={newLongitude} onChange={e => setNewLongitude(e.target.value)} placeholder="-48.398" className="w-full p-3 border rounded-xl" />
+                </div>
+                <p className="col-span-2 text-xs text-slate-500">Informe as coordenadas do imóvel para localizar concorrentes em até 500 m.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -764,20 +836,20 @@ export const OwnerPanel: React.FC = () => {
                   <span className="text-slate-400 font-bold">Status da Reserva:</span>
                   <div className="flex gap-1.5">
                     <button
-                      onClick={() => handleUpdateReservationStatus(selectedReservationForPdf.id, 'Confirmada')}
+                      onClick={() => handleUpdateReservationStatus(selectedReservationForPdf.id, 'confirmed')}
                       className={`px-3 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
-                        selectedReservationForPdf.status === 'Confirmada' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+                        ['confirmed', 'confirmada'].includes(selectedReservationForPdf.status.toLocaleLowerCase('pt-BR')) ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
                       }`}
                     >
-                      Confirmar
+                      Aprovar
                     </button>
                     <button
-                      onClick={() => handleUpdateReservationStatus(selectedReservationForPdf.id, 'Cancelada')}
+                      onClick={() => handleUpdateReservationStatus(selectedReservationForPdf.id, 'rejected')}
                       className={`px-3 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
-                        selectedReservationForPdf.status === 'Cancelada' ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'
+                        ['rejected', 'recusada', 'cancelada', 'cancelled'].includes(selectedReservationForPdf.status.toLocaleLowerCase('pt-BR')) ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'
                       }`}
                     >
-                      Cancelar
+                      Recusar
                     </button>
                   </div>
                 </div>
@@ -857,32 +929,6 @@ export const OwnerPanel: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            {/* BOTÃO DE PAGAMENTO COM SPLIT INTEGRADO NO MODAL */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => handleCheckoutWithSplit(selectedReservationForPdf)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
-              >
-                <DollarSign className="w-4 h-4" /> Processar Pagamento (Comissão Automática 10%)
-              </button>
-            </div>
-
-            <div className="pt-2 flex gap-3">
-              <button
-                onClick={() => setSelectedReservationForPdf(null)}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold transition cursor-pointer"
-              >
-                Fechar
-              </button>
-              <button
-                onClick={() => handleGenerateAndSavePdfReport(selectedReservationForPdf)}
-                className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
-              >
-                <Download className="w-4 h-4" /> Gerar & Salvar Relatório na Reserva
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -957,6 +1003,21 @@ export const OwnerPanel: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <PricingAssistant
+        ownerId={ownerId}
+        properties={properties}
+        focusPropertyId={focusPricingPropertyId}
+        onPriceApplied={(propertyId, price) => {
+          setProperties((currentProperties) =>
+            currentProperties.map((property) =>
+              property.id === propertyId
+                ? { ...property, price, preco_inteligente_ativo: true, smart_pricing_active: true }
+                : property,
+            ),
+          );
+        }}
+      />
 
       {/* ÁREA DINÂMICA */}
       {mainView === 'gross_revenue_report' ? (
@@ -1048,47 +1109,12 @@ export const OwnerPanel: React.FC = () => {
           </div>
         </div>
       ) : mainView === 'reservations_list' ? (
-        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
-          <div className="flex justify-between items-center border-b border-slate-100 pb-4">
-            <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-teal-600" /> Lista Completa de Reservas & Relatórios Salvos
-            </h3>
-            <button
-              onClick={() => setMainView('properties')}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" /> Voltar aos Imóveis
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {reservations.map((res) => (
-              <div
-                key={res.id}
-                onClick={() => setSelectedReservationForPdf(res)}
-                className="border border-slate-100 hover:border-teal-500 rounded-2xl p-5 space-y-3 bg-slate-50/50 hover:bg-white shadow-sm transition cursor-pointer flex flex-col justify-between group"
-              >
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">
-                      {res.status}
-                    </span>
-                    <span className="font-extrabold text-teal-700 text-xs">R$ {Number(res.total_price).toFixed(2)}</span>
-                  </div>
-                  <h4 className="font-extrabold text-slate-800 text-sm group-hover:text-teal-600">{res.guest_name}</h4>
-                  <p className="text-slate-500 text-xs">{res.properties?.title || 'Imóvel'}</p>
-                  <p className="text-[11px] text-slate-400">{res.check_in} ➔ {res.check_out}</p>
-                </div>
-                <div className="pt-3 border-t border-slate-200/60 flex justify-between items-center text-[11px]">
-                  <span className={res.report_summary ? 'text-emerald-600 font-bold' : 'text-slate-400'}>
-                    {res.report_summary ? '✓ Relatório PDF Disponível' : 'Sem relatório salvo'}
-                  </span>
-                  <span className="text-teal-600 font-bold underline">Abrir</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <OwnerReservations
+          reservations={reservations}
+          updatingReservationId={updatingReservationId}
+          onStatusChange={handleUpdateReservationStatus}
+          onOpenReservation={setSelectedReservationForPdf}
+        />
       ) : (
         <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
           <h3 className="text-lg font-extrabold text-slate-800">Meus Imóveis sob Minha Gestão</h3>

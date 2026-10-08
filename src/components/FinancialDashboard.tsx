@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { DollarSign, TrendingUp, Wallet, ArrowUpRight, Building2, CheckCircle2 } from 'lucide-react';
 
 interface BookingRecord {
@@ -29,7 +29,12 @@ export const FinancialDashboard: React.FC = () => {
         .select('id, total_price, check_in, created_at, properties(title, city)');
 
       if (error) throw error;
-      if (data) setBookings(data);
+      if (data) {
+        setBookings(data.map((booking) => ({
+          ...booking,
+          properties: Array.isArray(booking.properties) ? booking.properties[0] : booking.properties,
+        })));
+      }
     } catch (err) {
       console.error('Erro ao carregar dados financeiros:', err);
     } finally {

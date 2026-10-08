@@ -12,7 +12,14 @@ serve(async (req) => {
   }
 
   try {
-    const { reservationId, title, totalAmount, ownerAccountId } = await req.json()
+    const { 
+      reservationId, 
+      title, 
+      totalAmount, 
+      guestName,
+      guestEmail,
+      guestCpf 
+    } = await req.json()
 
     // 1. Cálculo matemático do Split (10% Plataforma, 90% Proprietário)
     const commissionRate = 0.10;
@@ -26,7 +33,7 @@ serve(async (req) => {
     )
 
     // 3. Registrar a transação pendente no banco de dados
-    const { error: txError } = await supabaseAdmin
+    const { data: txData, error: txError } = await supabaseAdmin
       .from('transactions')
       .insert({
         reservation_id: reservationId,
@@ -35,53 +42,77 @@ serve(async (req) => {
         owner_net_amount: ownerNetAmount,
         status: 'Pendente'
       })
+      .select()
+      .single()
 
     if (txError) throw txError;
 
-    // 4. Integração com o Gateway de Pagamento (Exemplo estruturado para Stripe Connect / Split)
-    // Aqui você insere a chave secreta do seu gateway configurada nas Secrets do Supabase
-    const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
-    
-    // Simulação de chamada de preferência de pagamento com Split para o Gateway
-    // Se o proprietário tiver uma conta conectada (ownerAccountId), o Stripe faz o transfer_data automático.
-    /*
-    const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    // 4. Obter o Access Token do Mercado Pago
+    const mpAccessToken = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN');
+    if (!mpAccessToken) {
+      throw new Error('MERCADO_PAGO_ACCESS_TOKEN não está configurada nas Secrets do Supabase.');
+    }
+
+    // 5. Montar o payload para criação de pagamento Pix Direto
+    const paymentPayload = {
+      transaction_amount: Number(totalAmount),
+      description: title || 'Reserva GoFérias',
+      payment_method_id: 'pix',
+      payer: {
+        email: guestEmail || 'hospede@goferias.com.br',
+        first_name: guestName ? guestName.split(' ')[0] : 'Hóspede',
+        last_name: guestName ? guestName.split(' ').slice(1).join(' ') || 'GoFérias' : 'GoFérias',
+        identification: {
+          type: 'CPF',
+          number: guestCpf || '88820050978'
+        }
+      },
+      external_reference: String(txData.id)
+    };
+
+    const mpResponse = await fetch('https://api.mercadopago.com/v1/payments', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${stripeKey}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Bearer ${mpAccessToken}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': String(txData.id)
       },
-      body: new URLSearchParams({
-        'payment_method_types[0]': 'card',
-        'line_items[0][price_data][currency]': 'brl',
-        'line_items[0][price_data][unit_amount]': String(Math.round(totalAmount * 100)),
-        'line_items[0][price_data][product_data][name]': title,
-        'line_items[0][quantity]': '1',
-        'mode': 'payment',
-        // Regra de Split se o proprietário estiver cadastrado:
-        ...(ownerAccountId ? {
-          'payment_intent_data[transfer_data][destination]': ownerAccountId,
-          'payment_intent_data[transfer_data][amount_data][unit_amount]': String(Math.round(ownerNetAmount * 100)),
-        } : {}),
-        'success_url': `${req.headers.get('origin')}/?payment=success`,
-        'cancel_url': `${req.headers.get('origin')}/?payment=cancel`,
-      })
+      body: JSON.stringify(paymentPayload)
     });
-    const session = await stripeResponse.json();
-    */
 
-    // Retorno temporário simulado para teste de integração do fluxo
+    const mpData = await mpResponse.json();
+
+    if (!mpResponse.ok) {
+      throw new Error(`Erro Pix Mercado Pago: ${mpData.message || JSON.stringify(mpData)}`);
+    }
+
+    // Extrair os dados do Pix gerados pelo Mercado Pago
+    const pointOfInteraction = mpData.point_of_interaction;
+    const qrCode = pointOfInteraction?.transaction_data?.qr_code;
+    const qrCodeBase64 = pointOfInteraction?.transaction_data?.qr_code_base64;
+    const ticketUrl = pointOfInteraction?.transaction_data?.ticket_url;
+
+    // 6. Atualizar a transação no banco com o ID do pagamento gerado
+    await supabaseAdmin
+      .from('transactions')
+      .update({ gateway_session_id: String(mpData.id) })
+      .eq('id', txData.id);
+
     return new Response(
       JSON.stringify({ 
         success: true, 
-        init_point: "https://checkout.stripe.com/pay/simulated_checkout_link", 
+        paymentId: mpData.id,
+        qrCode,          // Código Pix "Copia e Cola"
+        qrCodeBase64,    // Imagem em Base64 para exibir o QR Code
+        ticketUrl,       // Link alternativo se necessário
+        totalAmount,
         platformCommission,
         ownerNetAmount 
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
 
-  } catch (error) {
+  } catch (error: any) {
     return new Response(
       JSON.stringify({ error: error.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }

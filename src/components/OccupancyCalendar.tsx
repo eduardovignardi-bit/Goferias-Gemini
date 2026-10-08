@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { Calendar as CalendarIcon, Building2, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 
 interface Property {

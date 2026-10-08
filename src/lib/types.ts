@@ -25,13 +25,17 @@ export interface AnuncioExterno {
   description: string;
   location: string;
   city: string;
+  state?: string;
   lat: number;
   lng: number;
   pricePerNight: number;
+  price?: number;
   bedrooms: number;
   bathrooms: number;
   maxGuests: number;
   imageUrl: string;
+  images?: string[];
+  propertyType?: string;
   rating: number;
   reviews: number;
   source: string;

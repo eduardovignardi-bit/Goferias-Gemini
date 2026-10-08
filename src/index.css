@@ -1,3 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.leaflet-container {
+	font-family: inherit;
+}
+
+.gof-pmap-price {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 68px;
+	height: 32px;
+	padding: 0 10px;
+	border: 2px solid #0f766e;
+	border-radius: 999px;
+	background: #fff;
+	color: #0f172a;
+	box-shadow: 0 2px 8px rgb(15 23 42 / 20%);
+	font-size: 12px;
+	font-weight: 700;
+	white-space: nowrap;
+	transition: transform 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.leaflet-marker-icon:hover .gof-pmap-price {
+	transform: scale(1.08);
+	background: #0f766e;
+	color: #fff;
+}

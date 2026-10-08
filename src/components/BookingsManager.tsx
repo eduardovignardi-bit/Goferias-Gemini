@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { Calendar, User, DollarSign, CheckCircle2, AlertTriangle, Plus } from 'lucide-react';
 
 interface Property {
@@ -10,6 +10,7 @@ interface Property {
 
 interface Booking {
   id: string;
+  created_at: string;
   property_id: string;
   guest_name: string;
   check_in: string;
