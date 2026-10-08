@@ -39,6 +39,35 @@ function isValidHistory(messages: unknown): messages is ChatMessage[] {
   );
 }
 
+function isRetryableGeminiError(error: unknown): boolean {
+  const pending: unknown[] = [error];
+  const visited = new Set<object>();
+
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value === 'string') {
+      if (/high demand|overload|unavailable|\b503\b/i.test(value)) return true;
+      continue;
+    }
+
+    if (typeof value !== 'object' || value === null || visited.has(value)) continue;
+    visited.add(value);
+
+    const details = value as Record<string, unknown>;
+    for (const key of ['message', 'status', 'code', 'error', 'cause', 'details']) {
+      try {
+        const detail = details[key];
+        if (key === 'status' && (detail === 'UNAVAILABLE' || detail === 503 || detail === '503')) return true;
+        if (key === 'code' && (detail === 503 || detail === '503')) return true;
+        pending.push(detail);
+      } catch {
+      }
+    }
+  }
+
+  return false;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -94,8 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const result = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+    const generationOptions = {
       contents: messages.map((message) => ({
         role: message.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: message.content }],
@@ -108,7 +136,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'e nunca afirme ter consultado concorrentes, eventos ou dados de mercado que não foram fornecidos. ' +
         'Responda em português brasileiro, com objetividade.',
       },
-    });
+    };
+
+    let result;
+    try {
+      result = await ai.models.generateContent({ model: 'gemini-1.5-flash', ...generationOptions });
+    } catch (error) {
+      if (!isRetryableGeminiError(error)) throw error;
+      result = await ai.models.generateContent({ model: 'gemini-1.5-pro', ...generationOptions });
+    }
 
     return res.status(200).json({ message: result.text });
   } catch (error) {
