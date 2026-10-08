@@ -95,7 +95,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const result = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-1.5-flash',
       contents: messages.map((message) => ({
         role: message.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: message.content }],

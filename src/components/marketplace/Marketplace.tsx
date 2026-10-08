@@ -358,12 +358,14 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ onOpenProperty }) => {
   }, [destination, guestCount, maxPrice, minBathrooms, minBedrooms, minPrice, properties, reservations, searchCheckIn, searchCheckOut]);
 
   const fetchMarketplaceData = async () => {
+    let propertiesLoaded = false;
+
     try {
       setLoading(true);
-      const [propertyResponse, reservationResponse] = await Promise.all([
-        supabase.from('Properties').select('*').order('created_at', { ascending: false }),
-        supabase.from('reservations').select('property_id, check_in, check_out, status')
-      ]);
+      const propertyResponse = await supabase
+        .from('Properties')
+        .select('*')
+        .order('created_at', { ascending: false });
 
       if (propertyResponse.error) {
         console.error('Erro ao carregar imóveis do marketplace:', propertyResponse.error);
@@ -372,10 +374,21 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ onOpenProperty }) => {
         const propertyRows = propertyResponse.data as DatabaseProperty[] | null;
         setProperties((propertyRows || []).map(normalizeProperty));
       }
+      propertiesLoaded = true;
+      setLoading(false);
 
-      if (reservationResponse.data) setReservations(reservationResponse.data);
+      const reservationResponse = await supabase
+        .from('reservations')
+        .select('property_id, check_in, check_out, status');
+      if (reservationResponse.error) {
+        console.error('Erro ao carregar reservas do marketplace:', reservationResponse.error);
+        setReservations([]);
+      } else {
+        setReservations(reservationResponse.data || []);
+      }
     } catch (err) {
       console.error('Erro ao carregar marketplace:', err);
+      if (!propertiesLoaded) setProperties([]);
     } finally {
       setLoading(false);
     }
