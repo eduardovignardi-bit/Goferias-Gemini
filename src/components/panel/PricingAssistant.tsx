@@ -8,7 +8,8 @@ type Property = {
   title: string;
   city: string;
   state: string;
-  bedrooms: number;
+  bedrooms?: number | null;
+  quartos?: number | null;
   bathrooms?: number | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -193,9 +194,12 @@ export const PricingAssistant: React.FC<PricingAssistantProps> = ({
 
   const requestPriceSuggestion = () => {
     if (!selectedProperty) return;
+    const bedroomCount = Number(
+      selectedProperty.bedrooms ?? selectedProperty.quartos ?? 0,
+    );
     void sendMessage(
       `Analise uma diária para este imóvel: ${selectedProperty.title}, em ${selectedProperty.city}/${selectedProperty.state}, ` +
-        `${selectedProperty.bedrooms} quartos, preço atual de R$ ${Number(selectedProperty.price).toFixed(2)}. ` +
+        `${Number.isFinite(bedroomCount) ? bedroomCount : 0} quartos, preço atual de R$ ${Number(selectedProperty.price).toFixed(2)}. ` +
         'Sugira uma faixa de preço e um valor recomendado, explicando as premissas. Não trate como dado confirmado de concorrentes.',
     );
   };

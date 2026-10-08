@@ -339,7 +339,9 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ onOpenProperty }) => {
 
     if (guestCount > 0) result = result.filter((property) => property.max_guests >= guestCount);
     if (minPrice > 0) result = result.filter((property) => property.price >= minPrice);
-    result = result.filter((property) => property.price <= maxPrice);
+    if (maxPrice > 0 && maxPrice !== 5000) {
+      result = result.filter((property) => property.price <= maxPrice);
+    }
     if (minBedrooms > 0) result = result.filter((property) => property.bedrooms >= minBedrooms);
     if (minBathrooms > 0) result = result.filter((property) => property.bathrooms >= minBathrooms);
 
@@ -363,17 +365,13 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ onOpenProperty }) => {
         supabase.from('reservations').select('property_id, check_in, check_out, status')
       ]);
 
-      let propertyRows = propertyResponse.data as DatabaseProperty[] | null;
       if (propertyResponse.error) {
-        const fallback = await supabase
-          .from('marketplace_properties')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (fallback.error) throw propertyResponse.error;
-        propertyRows = fallback.data as DatabaseProperty[] | null;
+        console.error('Erro ao carregar imóveis do marketplace:', propertyResponse.error);
+        setProperties([]);
+      } else {
+        const propertyRows = propertyResponse.data as DatabaseProperty[] | null;
+        setProperties((propertyRows || []).map(normalizeProperty));
       }
-
-      setProperties((propertyRows || []).map(normalizeProperty));
 
       if (reservationResponse.data) setReservations(reservationResponse.data);
     } catch (err) {
