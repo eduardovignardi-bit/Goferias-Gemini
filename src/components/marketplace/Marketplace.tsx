@@ -322,19 +322,10 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ onOpenProperty }) => {
     let result = properties;
 
     if (destination.trim()) {
-      const term = normalizeDestination(destination);
-      result = result.filter((property) => {
-        const searchableText = normalizeDestination([
-          property.city,
-          property.state,
-          regionByState[property.state.trim().toLocaleUpperCase('pt-BR')] || '',
-          property.neighborhood,
-          property.full_address,
-          property.location,
-          property.title,
-        ].join(' '));
-        return searchableText.includes(term);
-      });
+      const term = destination.toLowerCase().trim().replace(/\s+/g, ' ');
+      result = result.filter((property) =>
+        property.city.toLowerCase().trim().replace(/\s+/g, ' ').includes(term),
+      );
     }
 
     if (guestCount > 0) result = result.filter((property) => property.max_guests >= guestCount);
@@ -363,16 +354,19 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ onOpenProperty }) => {
     try {
       setLoading(true);
       const propertyResponse = await supabase
-        .from('Properties')
+        .from('properties')
         .select('*')
         .order('created_at', { ascending: false });
+      console.log("Imóveis brutos do Supabase:", propertyResponse.data);
 
       if (propertyResponse.error) {
-        console.error('Erro ao carregar imóveis do marketplace:', propertyResponse.error);
+        console.error('Erro no Supabase Marketplace:', propertyResponse.error);
         setProperties([]);
       } else {
-        const propertyRows = propertyResponse.data as DatabaseProperty[] | null;
-        setProperties((propertyRows || []).map(normalizeProperty));
+        const propertyRows = Array.isArray(propertyResponse.data)
+          ? propertyResponse.data as DatabaseProperty[]
+          : [];
+        setProperties(propertyRows.map(normalizeProperty));
       }
       propertiesLoaded = true;
       setLoading(false);
@@ -386,8 +380,8 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ onOpenProperty }) => {
       } else {
         setReservations(reservationResponse.data || []);
       }
-    } catch (err) {
-      console.error('Erro ao carregar marketplace:', err);
+    } catch (error) {
+      console.error('Erro no Supabase Marketplace:', error);
       if (!propertiesLoaded) setProperties([]);
     } finally {
       setLoading(false);

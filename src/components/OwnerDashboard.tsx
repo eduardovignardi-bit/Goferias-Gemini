@@ -101,13 +101,16 @@ export const OwnerDashboard: React.FC = () => {
       setCurrentUserId(userId);
 
       const propRes = await supabase
-        .from('Properties')
+        .from('properties')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
         
       if (propRes.error) throw propRes.error;
-      const userProperties = propRes.data || [];
+      const userProperties = (propRes.data || []).map((property) => ({
+        ...property,
+        bedrooms: Number(property.quartos ?? property.bedrooms ?? 0),
+      }));
       setProperties(userProperties);
 
       const propertyIds = userProperties.map(p => p.id);
@@ -120,7 +123,7 @@ export const OwnerDashboard: React.FC = () => {
 
       const resQuery = await supabase
         .from('reservations')
-        .select('*, properties:Properties(title, city, cleaning_fee)')
+        .select('*, properties:properties(title, city, cleaning_fee)')
         .in('property_id', propertyIds)
         .order('check_in', { ascending: false });
 
@@ -160,14 +163,14 @@ export const OwnerDashboard: React.FC = () => {
         city: newCity,
         state: newState,
         max_guests: Number(newMaxGuests),
-        bedrooms: Number(newBedrooms),
+        quartos: Number(newBedrooms),
         price: Number(newPrice),
         cleaning_fee: Number(newCleaningFee),
         images: [newImageUrl || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688'],
         user_id: currentUserId
       };
 
-      const { error } = await supabase.from('Properties').insert([propertyData]);
+      const { error } = await supabase.from('properties').insert([propertyData]);
       if (error) throw error;
 
       showToast('Imóvel cadastrado com sucesso!', 'success');
@@ -184,7 +187,7 @@ export const OwnerDashboard: React.FC = () => {
   const handleDeleteProperty = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir este imóvel?')) return;
     try {
-      const { error } = await supabase.from('Properties').delete().eq('id', id);
+      const { error } = await supabase.from('properties').delete().eq('id', id);
       if (error) throw error;
       showToast('Imóvel excluído com sucesso.', 'success');
       fetchOwnerData();
