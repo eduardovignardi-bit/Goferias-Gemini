@@ -78,6 +78,7 @@ export const OwnerPanel: React.FC = () => {
   const [mainView, setMainView] = useState<'properties' | 'financial_report' | 'gross_revenue_report' | 'reservations_list'>('properties');
   const [selectedReservationForPdf, setSelectedReservationForPdf] = useState<ReservationWithProperty | null>(null);
 
+  const [showPropertyForm, setShowPropertyForm] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
 
@@ -330,7 +331,7 @@ export const OwnerPanel: React.FC = () => {
     setNewCleaningFee(100);
     setPreviewUrls([]);
     setImportUrl('');
-    setIsModalOpen(true);
+    setShowPropertyForm(true);
   };
 
   const handleOpenEditModal = (property: Property) => {
@@ -651,14 +652,36 @@ export const OwnerPanel: React.FC = () => {
         </div>
       </div>
 
-      <PropertyForm
-        ownerId={ownerId}
-        onCreated={(property) => {
-          setProperties((currentProperties) => [property, ...currentProperties]);
-          setFocusPricingPropertyId(property.id);
-          setMainView('properties');
-        }}
-      />
+      {showPropertyForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Cadastrar imóvel"
+            className="relative my-8 w-full max-w-3xl"
+          >
+            <div className="mb-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowPropertyForm(false)}
+                aria-label="Fechar cadastro de imóvel"
+                className="flex size-10 items-center justify-center rounded-full bg-white text-slate-700 shadow transition hover:bg-slate-100"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <PropertyForm
+              ownerId={ownerId}
+              onCreated={(property) => {
+                setProperties((currentProperties) => [property, ...currentProperties]);
+                setFocusPricingPropertyId(property.id);
+                setMainView('properties');
+                setShowPropertyForm(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE CADASTRO / EDIÇÃO */}
       {isModalOpen && (

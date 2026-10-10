@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Building2, Calendar, DollarSign, Plus, Trash2, CheckCircle2, AlertTriangle, MapPin, X, Lock, CreditCard, PieChart, MessageSquare } from 'lucide-react';
 
@@ -58,21 +58,22 @@ export const OwnerDashboard: React.FC = () => {
   const [reservations, setReservations] = useState<ReservationWithProperty[]>([]);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isNotAuthenticated, setIsNotAuthenticated] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'finances'>('overview');
+  const activeTab = 'overview';
 
-  // Estados do Modal de Novo Imóvel
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showForm, setShowForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newType, setNewType] = useState('Casa');
   const [newCity, setNewCity] = useState('Florianópolis');
   const [newState, setNewState] = useState('SC');
   const [newMaxGuests, setNewMaxGuests] = useState(4);
   const [newBedrooms, setNewBedrooms] = useState(2);
+  const [newBathrooms, setNewBathrooms] = useState(1);
   const [newPrice, setNewPrice] = useState(350);
   const [newCleaningFee, setNewCleaningFee] = useState(100);
-  const [newImageUrl, setNewImageUrl] = useState('');
+  const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
+  const [isSavingProperty, setIsSavingProperty] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Toast flutuante
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -98,7 +99,6 @@ export const OwnerDashboard: React.FC = () => {
       }
 
       const userId = authData.user.id;
-      setCurrentUserId(userId);
 
       const propRes = await supabase
         .from('properties')
@@ -152,35 +152,78 @@ export const OwnerDashboard: React.FC = () => {
 
   const handleCreateProperty = async (e: React.FormEvent) => {
     e.preventDefault();
+    const uploadedImagePaths: string[] = [];
+    setIsSavingProperty(true);
+
     try {
-      if (!currentUserId) {
+      const title = newTitle.trim();
+      if (!title) {
+        throw new Error('Informe o título do imóvel.');
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!authData.user) {
         throw new Error('Sessão expirada. Faça login novamente.');
+      }
+      const userId = authData.user.id;
+
+      const imageUrls: string[] = [];
+      for (const file of newImageFiles) {
+        const extension = file.type === 'image/png' ? 'png' : 'jpg';
+        const storagePath = `${userId}/${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabase.storage
+          .from('property-images')
+          .upload(storagePath, file, {
+            cacheControl: '3600',
+            contentType: file.type,
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+        uploadedImagePaths.push(storagePath);
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('property-images')
+          .getPublicUrl(storagePath);
+        imageUrls.push(publicUrl);
       }
 
       const propertyData = {
-        title: newTitle,
+        title,
         property_type: newType,
         city: newCity,
         state: newState,
         max_guests: Number(newMaxGuests),
         quartos: Number(newBedrooms),
+        banheiros: Number(newBathrooms),
         price: Number(newPrice),
         cleaning_fee: Number(newCleaningFee),
-        images: [newImageUrl || 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688'],
-        user_id: currentUserId
+        images: imageUrls,
+        user_id: userId,
       };
 
       const { error } = await supabase.from('properties').insert([propertyData]);
       if (error) throw error;
+      uploadedImagePaths.length = 0;
 
       showToast('Imóvel cadastrado com sucesso!', 'success');
-      setIsModalOpen(false);
+      setShowForm(false);
       setNewTitle('');
-      setNewImageUrl('');
+      setNewImageFiles([]);
+      if (imageInputRef.current) imageInputRef.current.value = '';
       fetchOwnerData();
     } catch (err: any) {
+      if (uploadedImagePaths.length > 0) {
+        const { error: cleanupError } = await supabase.storage
+          .from('property-images')
+          .remove(uploadedImagePaths);
+        if (cleanupError) console.error('Não foi possível remover imagens do cadastro incompleto:', cleanupError);
+      }
       console.error('Erro ao cadastrar imóvel:', err);
       showToast(err.message || 'Erro ao cadastrar imóvel.', 'error');
+    } finally {
+      setIsSavingProperty(false);
     }
   };
 
@@ -322,37 +365,17 @@ export const OwnerDashboard: React.FC = () => {
           <span className="bg-slate-700 text-teal-300 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
             Painel GoFérias Pro
           </span>
-          <h1 className="text-3xl font-extrabold mt-2">Gestão de Imóveis & Demonstrativo Financeiro</h1>
-          <p className="text-slate-300 text-sm mt-1">Controle de reservas em tempo real com projeção de repasses líquidos.</p>
+          <h1 className="text-3xl font-extrabold mt-2">Meus Imóveis</h1>
+          <p className="text-slate-300 text-sm mt-1">Gerencie os imóveis cadastrados na sua conta.</p>
         </div>
         <div className="flex gap-3">
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => setShowForm(true)}
             className="bg-teal-600 hover:bg-teal-700 text-white px-5 py-3 rounded-2xl font-bold text-xs flex items-center gap-2 shadow-lg transition"
           >
-            <Plus className="w-4 h-4" /> Novo Imóvel
+            <Plus className="w-4 h-4" /> Cadastrar Novo Imóvel
           </button>
         </div>
-      </div>
-
-      {/* Abas de Navegação */}
-      <div className="flex gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition flex items-center gap-2 ${
-            activeTab === 'overview' ? 'bg-teal-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-        >
-          <Building2 className="w-4 h-4" /> Visão Operacional & Reservas
-        </button>
-        <button
-          onClick={() => setActiveTab('finances')}
-          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition flex items-center gap-2 ${
-            activeTab === 'finances' ? 'bg-teal-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-        >
-          <PieChart className="w-4 h-4" /> Relatório de Receitas & Repasses
-        </button>
       </div>
 
       {dbError && (
@@ -365,150 +388,8 @@ export const OwnerDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Cards de Métricas */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-teal-50 text-teal-600 p-4 rounded-2xl">
-            <Building2 className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-400 font-bold uppercase block">Meus Imóveis</span>
-            <span className="text-2xl font-extrabold text-slate-800">{properties.length}</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-indigo-50 text-indigo-600 p-4 rounded-2xl">
-            <Calendar className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-400 font-bold uppercase block">Reservas Ativas</span>
-            <span className="text-2xl font-extrabold text-slate-800">{activeReservationsCount}</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl">
-            <DollarSign className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-400 font-bold uppercase block">Repasse Líquido</span>
-            <span className="text-xl font-extrabold text-emerald-700">{formatCurrency(ownerNetRevenue)}</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-sky-50 text-sky-600 p-4 rounded-2xl">
-            <CreditCard className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-400 font-bold uppercase block">Taxa Plataforma (10%)</span>
-            <span className="text-xl font-extrabold text-sky-700">{formatCurrency(platformFee)}</span>
-          </div>
-        </div>
-      </div>
-
       {activeTab === 'overview' ? (
         <>
-          {/* Seção de Controle de Reservas */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-extrabold text-slate-800">Controle de Reservas</h3>
-              <span className="text-xs text-slate-400 font-bold">{reservations.length} total</span>
-            </div>
-
-            {loading ? (
-              <div className="text-center py-8 text-slate-400 text-xs font-medium">A carregar reservas...</div>
-            ) : reservations.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 text-xs font-medium bg-slate-50 rounded-2xl">
-                Nenhuma reserva registrada para os seus imóveis.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-xs">
-                  <thead className="sticky top-0 bg-slate-50">
-                    <tr className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                      <th className="py-3 px-4">Hóspede</th>
-                      <th className="py-3 px-4">Imóvel</th>
-                      <th className="py-3 px-4">Período</th>
-                      <th className="py-3 px-4">Bruto (R$)</th>
-                      <th className="py-3 px-4">Líquido Prop. (90%)</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {reservations.map((res) => {
-                      const currentStatus = res.status || 'Pendente';
-                      const resTotal = Number(res.total_price) || 0;
-                      const resNet = getReservationOwnerNet(res);
-
-                      return (
-                        <tr key={res.id} className="transition-colors hover:bg-teal-50/40">
-                          <td className="py-3.5 px-4 font-bold text-slate-800">
-                            {res.guest_name || 'Hóspede'}
-                            <span className="block text-[10px] text-slate-400 font-normal">{res.guest_email || ''}</span>
-                          </td>
-                          <td className="py-3.5 px-4 font-medium text-slate-700">
-                            {res.properties?.title || 'Imóvel'}
-                            <span className="block text-[10px] text-slate-400">{res.properties?.city || ''}</span>
-                          </td>
-                          <td className="py-3.5 px-4 font-medium text-slate-600">
-                            📅 {res.check_in?.split('-').reverse().join('/')} ➔ {res.check_out?.split('-').reverse().join('/')}
-                          </td>
-                          <td className="py-3.5 px-4 font-extrabold text-slate-800">
-                            {formatCurrency(resTotal)}
-                          </td>
-                          <td className="py-3.5 px-4 font-extrabold text-emerald-700">
-                            {formatCurrency(resNet)}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              currentStatus === 'Confirmada' ? 'bg-emerald-100 text-emerald-700' :
-                              currentStatus === 'Cancelada' ? 'bg-rose-100 text-rose-700' :
-                              'bg-amber-100 text-amber-700'
-                            }`}>
-                              {currentStatus}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <div className="flex flex-wrap justify-end gap-2">
-                              {currentStatus !== 'Confirmada' && (
-                                <button
-                                  onClick={() => handleUpdateReservationStatus(res.id, 'Confirmada')}
-                                  className="rounded-xl bg-emerald-50 px-3 py-1.5 font-bold text-emerald-600 transition hover:bg-emerald-100"
-                                >
-                                  Aprovar
-                                </button>
-                              )}
-                              {currentStatus !== 'Cancelada' && (
-                                <button
-                                  onClick={() => handleUpdateReservationStatus(res.id, 'Cancelada')}
-                                  className="rounded-xl bg-rose-50 px-3 py-1.5 font-bold text-rose-600 transition hover:bg-rose-100"
-                                >
-                                  Cancelar
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleSendWhatsAppSummary(res)}
-                                aria-label={`Enviar resumo da reserva de ${res.guest_name || res.guest_email} pelo WhatsApp`}
-                                className="ml-auto flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                WhatsApp
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
           {/* Seção de Meus Imóveis */}
           <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
             <div className="flex justify-between items-center">
@@ -516,9 +397,13 @@ export const OwnerDashboard: React.FC = () => {
               <span className="text-xs text-slate-400 font-bold">{properties.length} cadastrados</span>
             </div>
 
-            {properties.length === 0 ? (
+            {loading ? (
               <div className="text-center py-12 text-slate-400 text-xs font-medium bg-slate-50 rounded-2xl">
-                Nenhum imóvel cadastrado. Clique em "Novo Imóvel" acima.
+                Carregando seus imóveis...
+              </div>
+            ) : properties.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-xs font-medium bg-slate-50 rounded-2xl">
+                Nenhum imóvel cadastrado. Use "Cadastrar Novo Imóvel" para adicionar o primeiro.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -724,7 +609,7 @@ export const OwnerDashboard: React.FC = () => {
       )}
 
       {/* MODAL DE CADASTRO DE NOVO IMÓVEL */}
-      {isModalOpen && (
+      {showForm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl relative my-8 space-y-5">
             <div className="flex justify-between items-start border-b border-slate-100 pb-3">
@@ -732,7 +617,7 @@ export const OwnerDashboard: React.FC = () => {
                 <span className="text-[10px] font-bold text-teal-600 uppercase">Novo Anúncio</span>
                 <h3 className="text-lg font-extrabold text-slate-800 mt-0.5">Cadastrar Imóvel</h3>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition">
+              <button onClick={() => setShowForm(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -776,7 +661,7 @@ export const OwnerDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <div>
                   <label className="block font-bold text-slate-700 uppercase mb-1">Máx. Hóspedes</label>
                   <input 
@@ -797,6 +682,17 @@ export const OwnerDashboard: React.FC = () => {
                     value={newBedrooms} 
                     onChange={(e) => setNewBedrooms(Number(e.target.value))} 
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-2xl font-medium focus:outline-none focus:ring-2 focus:ring-teal-500" 
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Banheiros</label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={newBathrooms}
+                    onChange={(e) => setNewBathrooms(Number(e.target.value))}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-2xl font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
                 <div>
@@ -840,29 +736,51 @@ export const OwnerDashboard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">URL da Imagem de Capa</label>
-                <input 
-                  type="url" 
-                  placeholder="https://images.unsplash.com/..." 
-                  value={newImageUrl} 
-                  onChange={(e) => setNewImageUrl(e.target.value)} 
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-2xl font-medium focus:outline-none focus:ring-2 focus:ring-teal-500" 
+                <label htmlFor="property-image-files" className="block font-bold text-slate-700 uppercase mb-1">Fotos do Imóvel</label>
+                <input
+                  ref={imageInputRef}
+                  id="property-image-files"
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  multiple
+                  onChange={(event) => {
+                    const files = Array.from(event.currentTarget.files || []);
+                    if (files.length > 10) {
+                      showToast('Selecione no máximo 10 imagens.', 'error');
+                      event.currentTarget.value = '';
+                      setNewImageFiles([]);
+                      return;
+                    }
+                    if (files.some((file) => !['image/jpeg', 'image/png'].includes(file.type) || file.size > 10 * 1024 * 1024)) {
+                      showToast('Use imagens JPG ou PNG de até 10 MB cada.', 'error');
+                      event.currentTarget.value = '';
+                      setNewImageFiles([]);
+                      return;
+                    }
+                    setNewImageFiles(files);
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium file:mr-3 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:py-2 file:font-semibold file:text-teal-800"
                 />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {newImageFiles.length > 0 ? `${newImageFiles.length} imagem(ns) selecionada(s)` : 'JPG ou PNG, até 10 imagens de 10 MB cada.'}
+                </p>
               </div>
 
               <div className="flex gap-3 pt-2">
                 <button 
                   type="button" 
-                  onClick={() => setIsModalOpen(false)} 
+                  onClick={() => setShowForm(false)}
+                  disabled={isSavingProperty}
                   className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-2xl font-bold transition"
                 >
                   Cancelar
                 </button>
                 <button 
-                  type="submit" 
+                  type="submit"
+                  disabled={isSavingProperty}
                   className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-3 rounded-2xl font-bold shadow-md transition"
                 >
-                  Salvar Imóvel
+                  {isSavingProperty ? 'Enviando...' : 'Salvar Imóvel'}
                 </button>
               </div>
             </form>
