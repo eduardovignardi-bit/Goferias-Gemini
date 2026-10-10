@@ -140,16 +140,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     let result: Awaited<ReturnType<typeof ai.models.generateContent>> | undefined;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      if (attempt === 1) await delay(1500);
-      if (attempt === 2) await delay(3000);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) await delay(500);
 
       try {
-        const model = attempt === 2 ? 'gemini-1.5-pro' : 'gemini-1.5-flash';
-        result = await ai.models.generateContent({ model, ...generationOptions });
+        result = await ai.models.generateContent({ model: 'gemini-2.5-flash', ...generationOptions });
         break;
       } catch (error) {
-        if (!isRetryableGeminiError(error) || attempt === 2) throw error;
+        if (!isRetryableGeminiError(error) || attempt === 1) throw error;
       }
     }
 
